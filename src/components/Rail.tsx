@@ -1,6 +1,6 @@
-import { FolderTree, Settings as SettingsIcon, Star } from "lucide-react";
+import { FolderTree, GitBranch, Settings as SettingsIcon, Star } from "lucide-react";
 
-export type SidebarView = "files" | "favorites";
+export type SidebarView = "files" | "favorites" | "git";
 
 interface RailProps {
   view: SidebarView;
@@ -50,6 +50,16 @@ export function Rail({
           aria-hidden
         />
         <span className="sr-only">Favorites</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onActivateView("git")}
+        title="Source control"
+        aria-pressed={view === "git" && sidebarVisible}
+        className={railBtn(view === "git")}
+      >
+        <GitBranch size={18} aria-hidden />
+        <span className="sr-only">Source control</span>
       </button>
 
       <button

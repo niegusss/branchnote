@@ -8,6 +8,7 @@ import { EditorPane } from "./components/EditorPane";
 import { PreviewPane } from "./components/PreviewPane";
 import { StartView } from "./components/StartView";
 import { StatusBar } from "./components/StatusBar";
+import { GitPanel } from "./components/GitPanel";
 import { Settings } from "./components/Settings";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
@@ -20,12 +21,25 @@ import {
   moveEntry,
   onWorkspaceChanged,
   pickFolder,
-  placeholderGitStatus,
   readFile,
   renameEntry,
   saveFile,
   watchFolder,
 } from "./lib/workspace";
+import {
+  gitCommit,
+  gitInit,
+  gitIsRepo,
+  gitLog,
+  gitPull,
+  gitPush,
+  gitStage,
+  gitStageAll,
+  gitStatus,
+  gitUnstage,
+  gitUnstageAll,
+  gitWorktree,
+} from "./lib/git";
 import {
   applyTheme,
   getStoredTheme,
@@ -34,9 +48,11 @@ import {
   watchSystem,
   type Theme,
 } from "./lib/theme";
-import type { FileEntry } from "./types";
+import type { CommitInfo, FileEntry, GitFileStatus, GitStatus } from "./types";
 
 const PREVIEW_KEY = "branchnote.previewVisible";
+/** How many commits to show in the Git panel's history list. */
+const GIT_LOG_LIMIT = 50;
 const SIDEBAR_KEY = "branchnote.sidebarVisible";
 const VAULT_KEY = "branchnote.vaultPath";
 const FAVORITES_KEY = "branchnote.favorites";
@@ -132,6 +148,16 @@ function App() {
     resolveTheme(getStoredTheme()),
   );
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  // Git (read path). `gitRepo === null` means detection hasn't run yet.
+  const [gitRepo, setGitRepo] = useState<boolean | null>(null);
+  const [gitStatusState, setGitStatusState] = useState<GitStatus | null>(null);
+  const [gitStaged, setGitStaged] = useState<GitFileStatus[]>([]);
+  const [gitUnstaged, setGitUnstaged] = useState<GitFileStatus[]>([]);
+  const [gitLogState, setGitLogState] = useState<CommitInfo[]>([]);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [gitNotice, setGitNotice] = useState<string | null>(null);
 
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
   const activeDirty = isDirty(active);
@@ -246,6 +272,112 @@ function App() {
   useEffect(() => {
     live.current = { vaultPath, tabs, activeId };
   });
+
+  /** Re-read git repo state (detect → status / changes / log) for the vault. */
+  const refreshGit = useCallback(async () => {
+    const v = live.current.vaultPath;
+    if (!v) return;
+    setGitLoading(true);
+    try {
+      const repo = await gitIsRepo(v);
+      setGitRepo(repo);
+      if (repo) {
+        const [st, wt, lg] = await Promise.all([
+          gitStatus(v),
+          gitWorktree(v),
+          gitLog(v, GIT_LOG_LIMIT),
+        ]);
+        setGitStatusState(st);
+        setGitStaged(wt.staged);
+        setGitUnstaged(wt.unstaged);
+        setGitLogState(lg);
+      } else {
+        setGitStatusState(null);
+        setGitStaged([]);
+        setGitUnstaged([]);
+        setGitLogState([]);
+      }
+      setGitError(null);
+    } catch (e) {
+      setGitError(formatErr(e));
+    } finally {
+      setGitLoading(false);
+    }
+  }, []);
+
+  /** Initialise a repo in the current vault, then load its state. */
+  async function onGitInit() {
+    const v = vaultPath;
+    if (!v) return;
+    try {
+      await gitInit(v);
+    } catch (e) {
+      setGitError(formatErr(e));
+      return;
+    }
+    await refreshGit();
+  }
+
+  /** Run a git mutation against the current vault, surface errors, then refresh.
+   *  Returns whether it succeeded (so the commit box knows when to clear). */
+  const runGit = useCallback(
+    async (fn: (vault: string) => Promise<void>): Promise<boolean> => {
+      const v = live.current.vaultPath;
+      if (!v) return false;
+      setGitNotice(null);
+      try {
+        await fn(v);
+      } catch (e) {
+        setGitError(formatErr(e));
+        return false;
+      }
+      await refreshGit();
+      return true;
+    },
+    [refreshGit],
+  );
+
+  /** Push the current branch, with a success notice. */
+  async function onGitPush() {
+    if (await runGit((v) => gitPush(v))) setGitNotice("Pushed to origin");
+  }
+
+  /** Pull (fetch + fast-forward), surfacing the outcome. */
+  async function onGitPull() {
+    const v = live.current.vaultPath;
+    if (!v) return;
+    setGitError(null);
+    setGitNotice(null);
+    let outcome: string;
+    try {
+      outcome = await gitPull(v);
+    } catch (e) {
+      setGitError(formatErr(e));
+      return;
+    }
+    await refreshGit();
+    setGitNotice(
+      outcome === "up-to-date"
+        ? "Already up to date"
+        : outcome === "fast-forward"
+          ? "Fast-forwarded from origin"
+          : "Diverged from origin — resolve manually",
+    );
+  }
+
+  // Load git state when the vault changes; clear it when there's no vault.
+  useEffect(() => {
+    if (!vaultPath) {
+      setGitRepo(null);
+      setGitStatusState(null);
+      setGitStaged([]);
+      setGitUnstaged([]);
+      setGitLogState([]);
+      return;
+    }
+    setGitRepo(null); // show the panel's loading state while detecting
+    void refreshGit();
+  }, [vaultPath, refreshGit]);
 
   function patchTab(id: string, patch: Partial<Tab>) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -509,6 +641,7 @@ function App() {
   const handleExternalChange = useCallback(async () => {
     const { vaultPath: v, tabs: ts, activeId: aid } = live.current;
     if (!v) return;
+    void refreshGit(); // disk changed (incl. .git/) — re-read git state
     try {
       const list = await listEntries(v);
       setFiles(list);
@@ -536,7 +669,7 @@ function App() {
     } catch {
       // Transient races during rapid edits; the next event will resync.
     }
-  }, []);
+  }, [refreshGit]);
 
   useEffect(() => {
     if (!vaultPath) return;
@@ -600,25 +733,50 @@ function App() {
               onOpenSettings={() => setSettingsOpen(true)}
             />
 
-            {sidebarVisible && (
-              <Sidebar
-                files={files}
-                root={vaultPath}
-                selectedPath={active.path}
-                dirtyPaths={dirtyPaths}
-                favorites={favorites}
-                view={sidebarView}
-                onViewChange={setSidebarView}
-                onToggleFavorite={toggleFavorite}
-                onSelect={selectFile}
-                onOpenInNewTab={openInNewTab}
-                onCreateFile={handleCreateFile}
-                onCreateFolder={handleCreateFolder}
-                onRename={handleRename}
-                onDelete={handleDelete}
-                onMove={handleMove}
-              />
-            )}
+            {sidebarVisible &&
+              (sidebarView === "git" ? (
+                <GitPanel
+                  isRepo={gitRepo}
+                  status={gitStatusState}
+                  staged={gitStaged}
+                  unstaged={gitUnstaged}
+                  log={gitLogState}
+                  loading={gitLoading}
+                  error={gitError}
+                  notice={gitNotice}
+                  onInit={onGitInit}
+                  onRefresh={() => void refreshGit()}
+                  onPull={() => void onGitPull()}
+                  onPush={() => void onGitPush()}
+                  onOpenFile={(rel) => {
+                    const f = files.find((x) => x.relPath === rel && !x.isDir);
+                    if (f) void selectFile(f.path);
+                  }}
+                  onStage={(rel) => void runGit((v) => gitStage(v, rel))}
+                  onUnstage={(rel) => void runGit((v) => gitUnstage(v, rel))}
+                  onStageAll={() => void runGit((v) => gitStageAll(v))}
+                  onUnstageAll={() => void runGit((v) => gitUnstageAll(v))}
+                  onCommit={(msg) => runGit((v) => gitCommit(v, msg))}
+                />
+              ) : (
+                <Sidebar
+                  files={files}
+                  root={vaultPath}
+                  selectedPath={active.path}
+                  dirtyPaths={dirtyPaths}
+                  favorites={favorites}
+                  view={sidebarView}
+                  onViewChange={setSidebarView}
+                  onToggleFavorite={toggleFavorite}
+                  onSelect={selectFile}
+                  onOpenInNewTab={openInNewTab}
+                  onCreateFile={handleCreateFile}
+                  onCreateFolder={handleCreateFolder}
+                  onRename={handleRename}
+                  onDelete={handleDelete}
+                  onMove={handleMove}
+                />
+              ))}
 
             <div className="flex min-w-0 flex-1 flex-col">
               <TabBar
@@ -652,7 +810,16 @@ function App() {
             </div>
           </div>
 
-          <StatusBar git={placeholderGitStatus} dirty={activeDirty} />
+          <StatusBar
+            git={
+              gitStatusState ?? {
+                branch: gitRepo === false ? "no repo" : "—",
+                changedFiles: 0,
+                clean: true,
+              }
+            }
+            dirty={activeDirty}
+          />
         </>
       )}
 

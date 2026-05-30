@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FileEntry, GitStatus } from "../types";
+import type { FileEntry } from "../types";
 
 /**
  * Typed wrappers over the Tauri Rust core commands (see `src-tauri/src/fs.rs`,
@@ -52,10 +52,3 @@ export const watchFolder = (root: string) =>
 /** Subscribe to debounced workspace changes. Resolves to an unlisten function. */
 export const onWorkspaceChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("workspace-changed", () => cb());
-
-/** Placeholder git status until the git core is implemented. */
-export const placeholderGitStatus: GitStatus = {
-  branch: "main",
-  changedFiles: 0,
-  clean: true,
-};

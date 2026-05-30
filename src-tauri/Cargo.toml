@@ -25,4 +25,12 @@ notify = "8"
 notify-debouncer-full = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+git2 = "0.20"
+# Windows-only target today; add apple-native / sync-secret-service when porting.
+keyring = { version = "3", features = ["windows-native"] }
+# Blocking HTTP client for the GitHub OAuth device flow (webview fetch to
+# github.com is CORS-blocked, so the calls live in Rust). rustls TLS by default.
+ureq = { version = "2", features = ["json"] }
 
+[dev-dependencies]
+tempfile = "3"
