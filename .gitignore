@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Tauri / Rust
+src-tauri/target/
+
+# Env & secrets (never commit API keys)
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+Thumbs.db
+
+# Claude Code / local project context (keep out of the public repo)
+.claude/
+.mcp.json
+CLAUDE.md
+memory-bank/
