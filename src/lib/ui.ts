@@ -9,6 +9,9 @@ export const btnPrimary = `inline-flex items-center justify-center gap-2 rounded
 /** Bordered neutral button (secondary action). */
 export const btnSecondary = `inline-flex items-center justify-center gap-2 rounded-md border border-line px-3 py-1.5 text-sm text-ink transition-colors hover:bg-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${focus}`;
 
+/** Filled danger button (destructive action). */
+export const btnDanger = `inline-flex items-center justify-center gap-2 rounded-md bg-danger px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${focus}`;
+
 /** Square ghost icon button. */
 export const iconButton = `inline-flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${focus}`;
 

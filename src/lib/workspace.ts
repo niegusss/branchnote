@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { ask, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, GitStatus } from "../types";
 
 /**
@@ -52,15 +52,6 @@ export const watchFolder = (root: string) =>
 /** Subscribe to debounced workspace changes. Resolves to an unlisten function. */
 export const onWorkspaceChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("workspace-changed", () => cb());
-
-/** Confirm a destructive action via a native dialog. */
-export const confirmDelete = (name: string, isDir: boolean) =>
-  ask(
-    isDir
-      ? `Delete folder "${name}" and everything inside it? This cannot be undone.`
-      : `Delete "${name}"? This cannot be undone.`,
-    { title: "Delete", kind: "warning" },
-  );
 
 /** Placeholder git status until the git core is implemented. */
 export const placeholderGitStatus: GitStatus = {

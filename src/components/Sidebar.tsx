@@ -32,8 +32,6 @@ interface SidebarProps {
   /** Which view the panel shows (controlled by the rail). */
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
-  /** Increment to open an inline "new file" input at the vault root. */
-  newFileSignal: number;
   onToggleFavorite: (relPath: string) => void;
   onSelect: (path: string) => void;
   onOpenInNewTab: (path: string) => void;
@@ -59,7 +57,6 @@ export function Sidebar({
   favorites,
   view,
   onViewChange,
-  newFileSignal,
   onToggleFavorite,
   onSelect,
   onOpenInNewTab,
@@ -216,12 +213,6 @@ export function Sidebar({
       return next;
     });
   }
-
-  // The rail's "New file" bumps this signal → open an inline create at root.
-  useEffect(() => {
-    if (newFileSignal > 0 && root) startCreate(root, "file");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newFileSignal]);
 
   function renderFavoriteRow(entry: FileEntry) {
     const active = entry.path === selectedPath;
@@ -425,39 +416,36 @@ export function Sidebar({
       aria-label="Workspace files"
       className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-faint">
+      <div className="flex items-center gap-2 px-2 py-2.5 text-xs font-medium uppercase tracking-wide text-faint">
         {showFavorites ? (
-          <Star size={14} aria-hidden />
+          <span className="flex items-center gap-2 px-1">
+            <Star size={14} aria-hidden />
+            Favorites
+          </span>
         ) : (
-          <FolderOpen size={14} aria-hidden />
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => root && startCreate(root, "file")}
+              disabled={!root}
+              title="New file"
+              className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FilePlus size={15} aria-hidden />
+              <span className="sr-only">New file</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => root && startCreate(root, "folder")}
+              disabled={!root}
+              title="New folder"
+              className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FolderPlus size={15} aria-hidden />
+              <span className="sr-only">New folder</span>
+            </button>
+          </div>
         )}
-        {showFavorites ? "Favorites" : "Files"}
-        <div className="ml-auto flex items-center gap-0.5">
-          {!showFavorites && (
-            <>
-              <button
-                type="button"
-                onClick={() => root && startCreate(root, "file")}
-                disabled={!root}
-                title="New file"
-                className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <FilePlus size={15} aria-hidden />
-                <span className="sr-only">New file</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => root && startCreate(root, "folder")}
-                disabled={!root}
-                title="New folder"
-                className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <FolderPlus size={15} aria-hidden />
-                <span className="sr-only">New folder</span>
-              </button>
-            </>
-          )}
-        </div>
       </div>
 
       {!root ? (

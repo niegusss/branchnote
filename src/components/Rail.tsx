@@ -1,4 +1,4 @@
-import { FilePlus, FolderTree, Settings as SettingsIcon, Star } from "lucide-react";
+import { FolderTree, Settings as SettingsIcon, Star } from "lucide-react";
 
 export type SidebarView = "files" | "favorites";
 
@@ -6,7 +6,6 @@ interface RailProps {
   view: SidebarView;
   sidebarVisible: boolean;
   onActivateView: (view: SidebarView) => void;
-  onNewFile: () => void;
   onOpenSettings: () => void;
 }
 
@@ -15,7 +14,6 @@ export function Rail({
   view,
   sidebarVisible,
   onActivateView,
-  onNewFile,
   onOpenSettings,
 }: RailProps) {
   const base =
@@ -29,13 +27,6 @@ export function Rail({
       aria-label="Activity bar"
       className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-2"
     >
-      <button type="button" onClick={onNewFile} title="New file" className={ghost}>
-        <FilePlus size={18} aria-hidden />
-        <span className="sr-only">New file</span>
-      </button>
-
-      <div className="my-1 h-px w-6 bg-line" aria-hidden />
-
       <button
         type="button"
         onClick={() => onActivateView("files")}

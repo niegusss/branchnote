@@ -1,10 +1,4 @@
-import {
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
-  Save,
-  X,
-} from "lucide-react";
+import { PanelRightClose, PanelRightOpen, Plus, X } from "lucide-react";
 
 export interface TabView {
   id: string;
@@ -19,9 +13,6 @@ interface TabBarProps {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNewTab: () => void;
-  /** Active tab has unsaved edits (enables Save). */
-  dirty: boolean;
-  onSave: () => void;
   previewVisible: boolean;
   onTogglePreview: () => void;
 }
@@ -32,8 +23,6 @@ export function TabBar({
   onSelect,
   onClose,
   onNewTab,
-  dirty,
-  onSave,
   previewVisible,
   onTogglePreview,
 }: TabBarProps) {
@@ -84,28 +73,18 @@ export function TabBar({
             </span>
           </div>
         ))}
-      </div>
-      <button
-        type="button"
-        onClick={onNewTab}
-        title="New tab"
-        className="flex shrink-0 items-center px-2.5 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95"
-      >
-        <Plus size={16} aria-hidden />
-        <span className="sr-only">New tab</span>
-      </button>
-
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 border-l border-line px-1.5">
         <button
           type="button"
-          onClick={onSave}
-          disabled={!dirty}
-          title="Save (Ctrl+S)"
-          className={editorBtn}
+          onClick={onNewTab}
+          title="New tab"
+          className="flex shrink-0 items-center px-2.5 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95"
         >
-          <Save size={15} aria-hidden />
-          <span className="sr-only">Save</span>
+          <Plus size={16} aria-hidden />
+          <span className="sr-only">New tab</span>
         </button>
+      </div>
+
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 border-l border-line px-1.5">
         <button
           type="button"
           onClick={onTogglePreview}

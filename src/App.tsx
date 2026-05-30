@@ -9,9 +9,9 @@ import { PreviewPane } from "./components/PreviewPane";
 import { StartView } from "./components/StartView";
 import { StatusBar } from "./components/StatusBar";
 import { Settings } from "./components/Settings";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
 import {
-  confirmDelete,
   createFile,
   createFolder,
   defaultVault,
@@ -117,6 +117,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     const v = localStorage.getItem(PREVIEW_KEY);
     return v === null ? true : v === "true";
@@ -126,7 +127,6 @@ function App() {
     const v = localStorage.getItem(SIDEBAR_KEY);
     return v === null ? true : v === "true";
   });
-  const [newFileSignal, setNewFileSignal] = useState(0);
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
   const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">(() =>
     resolveTheme(getStoredTheme()),
@@ -227,13 +227,6 @@ function App() {
       setSidebarView(view);
       setSidebarVisible(true);
     }
-  }
-
-  /** Rail "New file": reveal the files tree and open an inline create at root. */
-  function onNewFile() {
-    setSidebarView("files");
-    setSidebarVisible(true);
-    setNewFileSignal((n) => n + 1);
   }
 
   // Re-resolve the theme live while following the OS.
@@ -428,11 +421,6 @@ function App() {
     });
   }
 
-  async function save() {
-    if (!activeDirty) return;
-    await run(() => flushTab(active));
-  }
-
   async function handleCreateFile(dir: string, name: string) {
     if (!vaultPath) return;
     await run(async () => {
@@ -468,12 +456,18 @@ function App() {
     });
   }
 
-  async function handleDelete(path: string) {
-    if (!vaultPath) return;
+  /** Request deletion: open the confirm modal for the targeted entry. */
+  function handleDelete(path: string) {
     const entry = files.find((f) => f.path === path);
-    if (!entry) return;
-    const ok = await confirmDelete(entry.name, entry.isDir);
-    if (!ok) return;
+    if (entry) setPendingDelete(entry);
+  }
+
+  /** Carry out the deletion confirmed in the modal. */
+  async function confirmDeleteEntry() {
+    const entry = pendingDelete;
+    setPendingDelete(null);
+    if (!vaultPath || !entry) return;
+    const path = entry.path;
     await run(async () => {
       await deleteEntry(path);
       setFiles(await listEntries(vaultPath));
@@ -603,7 +597,6 @@ function App() {
               view={sidebarView}
               sidebarVisible={sidebarVisible}
               onActivateView={onActivateView}
-              onNewFile={onNewFile}
               onOpenSettings={() => setSettingsOpen(true)}
             />
 
@@ -616,7 +609,6 @@ function App() {
                 favorites={favorites}
                 view={sidebarView}
                 onViewChange={setSidebarView}
-                newFileSignal={newFileSignal}
                 onToggleFavorite={toggleFavorite}
                 onSelect={selectFile}
                 onOpenInNewTab={openInNewTab}
@@ -634,8 +626,6 @@ function App() {
                 onSelect={setActiveTab}
                 onClose={closeTab}
                 onNewTab={newTab}
-                dirty={activeDirty}
-                onSave={save}
                 previewVisible={previewVisible}
                 onTogglePreview={() => setPreviewVisible((v) => !v)}
               />
@@ -673,6 +663,20 @@ function App() {
           vaultPath={vaultPath}
           onChangeVault={changeVault}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.isDir ? "Delete folder" : "Delete file"}
+          message={
+            pendingDelete.isDir
+              ? `Delete folder "${pendingDelete.name}" and everything inside it? This cannot be undone.`
+              : `Delete "${pendingDelete.name}"? This cannot be undone.`
+          }
+          danger
+          onConfirm={confirmDeleteEntry}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </div>
