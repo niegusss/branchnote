@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -7,6 +7,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  LayoutTemplate,
   Pencil,
   SquarePlus,
   Star,
@@ -14,7 +15,9 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "../lib/tree";
+import { formatDate } from "../lib/format";
 import { textInput } from "../lib/ui";
+import { TemplatePicker } from "./TemplatePicker";
 import type { SidebarView } from "./Rail";
 
 /** Active-row treatment: a soft accent tint (no left bar). */
@@ -35,7 +38,12 @@ interface SidebarProps {
   onToggleFavorite: (relPath: string) => void;
   onSelect: (path: string) => void;
   onOpenInNewTab: (path: string) => void;
-  onCreateFile: (dir: string, name: string) => void;
+  /** Create a default-named note in `dir` and open it (named via the title). */
+  onCreateUntitled: (dir: string) => void;
+  /** Create a note from a template body in `dir` (placeholders applied upstream). */
+  onNewFromTemplate: (dir: string, rawBody: string) => void;
+  /** User template files (under `templates/`), shown in the New-from-template menu. */
+  templateFiles: FileEntry[];
   onCreateFolder: (dir: string, name: string) => void;
   onRename: (path: string, newName: string) => void;
   onDelete: (path: string) => void;
@@ -47,7 +55,16 @@ const ROW_PAD = 6;
 /** Assumed menu width (px) for viewport clamping. */
 const MENU_W = 188;
 
-type ContextMenu = { x: number; y: number; entry: FileEntry; inTree: boolean };
+// `entry: null` is the root menu (right-click on the file list's empty area).
+type ContextMenu = { x: number; y: number; entry: FileEntry | null; inTree: boolean };
+
+type MenuItem = {
+  key: string;
+  icon: React.ReactNode;
+  label: string;
+  action: () => void;
+  danger?: boolean;
+};
 
 export function Sidebar({
   files,
@@ -60,7 +77,9 @@ export function Sidebar({
   onToggleFavorite,
   onSelect,
   onOpenInNewTab,
-  onCreateFile,
+  onCreateUntitled,
+  onNewFromTemplate,
+  templateFiles,
   onCreateFolder,
   onRename,
   onDelete,
@@ -82,6 +101,20 @@ export function Sidebar({
     [files, favorites],
   );
 
+  // Immediate child counts per folder relPath ("" = root), for hovercards.
+  const childCounts = useMemo(() => {
+    const m = new Map<string, { files: number; dirs: number }>();
+    for (const f of files) {
+      const slash = f.relPath.lastIndexOf("/");
+      const parent = slash === -1 ? "" : f.relPath.slice(0, slash);
+      const c = m.get(parent) ?? { files: 0, dirs: 0 };
+      if (f.isDir) c.dirs += 1;
+      else c.files += 1;
+      m.set(parent, c);
+    }
+    return m;
+  }, [files]);
+
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<{
     dir: string;
@@ -92,6 +125,25 @@ export function Sidebar({
   const [renameName, setRenameName] = useState("");
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenu | null>(null);
+  // Metadata hovercard: shown after a short hover, anchored to the row's rect.
+  const [hover, setHover] = useState<{ rect: DOMRect; entry: FileEntry } | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function cancelHover() {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setHover(null);
+  }
+
+  /** Schedule the hovercard for `entry`, unless another interaction is active. */
+  function scheduleHover(e: React.MouseEvent, entry: FileEntry) {
+    if (menu || dragOver || renamingPath || creating) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHover({ rect, entry }), 450);
+  }
 
   // Dismiss the context menu on any click, Escape, scroll, or resize.
   useEffect(() => {
@@ -111,6 +163,11 @@ export function Sidebar({
       window.removeEventListener("keydown", onKey);
     };
   }, [menu]);
+
+  // Clear any pending hovercard timer on unmount.
+  useEffect(() => () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
 
   function toggle(path: string) {
     setCollapsed((prev) => {
@@ -137,10 +194,7 @@ export function Sidebar({
   function commitCreate() {
     if (!creating) return;
     const name = draftName.trim();
-    if (name) {
-      if (creating.kind === "file") onCreateFile(creating.dir, name);
-      else onCreateFolder(creating.dir, name);
-    }
+    if (name) onCreateFolder(creating.dir, name);
     setCreating(null);
     setDraftName("");
   }
@@ -178,6 +232,7 @@ export function Sidebar({
   function openMenu(e: React.MouseEvent, entry: FileEntry, inTree: boolean) {
     e.preventDefault();
     e.stopPropagation();
+    cancelHover();
     setMenu({ x: e.clientX, y: e.clientY, entry, inTree });
   }
 
@@ -224,6 +279,8 @@ export function Sidebar({
       <li key={entry.path}>
         <div
           onContextMenu={(e) => openMenu(e, entry, false)}
+          onMouseEnter={(e) => scheduleHover(e, entry)}
+          onMouseLeave={cancelHover}
           className={`group flex items-center rounded-md text-sm transition-colors ${
             active ? ROW_ACTIVE : "text-muted hover:bg-hover hover:text-ink"
           }`}
@@ -275,6 +332,7 @@ export function Sidebar({
             draggable={!renaming}
             onContextMenu={(e) => openMenu(e, entry, true)}
             onDragStart={(e) => {
+              cancelHover();
               e.dataTransfer.setData("text/plain", path);
               e.dataTransfer.effectAllowed = "move";
             }}
@@ -286,6 +344,8 @@ export function Sidebar({
             }}
             onDrop={(e) => handleDrop(e, path)}
             onDragEnd={() => setDragOver(null)}
+            onMouseEnter={(e) => scheduleHover(e, entry)}
+            onMouseLeave={cancelHover}
             className={`group flex items-center rounded-md text-sm transition-colors ${
               dropping
                 ? "bg-accent/10 ring-1 ring-accent/40"
@@ -355,6 +415,7 @@ export function Sidebar({
           draggable={!renaming}
           onContextMenu={(e) => openMenu(e, entry, true)}
           onDragStart={(e) => {
+            cancelHover();
             e.dataTransfer.setData("text/plain", path);
             e.dataTransfer.effectAllowed = "move";
           }}
@@ -366,6 +427,8 @@ export function Sidebar({
           }}
           onDrop={(e) => handleDrop(e, parentDir)}
           onDragEnd={() => setDragOver(null)}
+          onMouseEnter={(e) => scheduleHover(e, entry)}
+          onMouseLeave={cancelHover}
           className={`group flex items-center rounded-md text-sm transition-colors ${
             active ? ROW_ACTIVE : "text-muted hover:bg-hover hover:text-ink"
           }`}
@@ -426,7 +489,7 @@ export function Sidebar({
           <div className="flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => root && startCreate(root, "file")}
+              onClick={() => root && onCreateUntitled(root)}
               disabled={!root}
               title="New file"
               className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
@@ -444,6 +507,15 @@ export function Sidebar({
               <FolderPlus size={15} aria-hidden />
               <span className="sr-only">New folder</span>
             </button>
+            {root && (
+              <TemplatePicker
+                templateFiles={templateFiles}
+                onPick={(body) => onNewFromTemplate(root, body)}
+                triggerClassName="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95"
+                triggerContent={<LayoutTemplate size={15} aria-hidden />}
+                triggerTitle="New from template"
+              />
+            )}
           </div>
         )}
       </div>
@@ -452,6 +524,13 @@ export function Sidebar({
         <p className="px-3 py-2 text-sm text-faint">Open a folder to begin.</p>
       ) : (
         <ul
+          onContextMenu={(e) => {
+            // Empty-area right-click (rows stopPropagation) → root New file/folder.
+            if (showFavorites) return;
+            e.preventDefault();
+            cancelHover();
+            setMenu({ x: e.clientX, y: e.clientY, entry: null, inTree: false });
+          }}
           onDragOver={(e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
@@ -459,6 +538,7 @@ export function Sidebar({
           }}
           onDrop={(e) => handleDrop(e, root)}
           onDragEnd={() => setDragOver(null)}
+          onScroll={cancelHover}
           className={`flex-1 overflow-y-auto px-1.5 pb-2 ${
             rootDropping ? "ring-1 ring-inset ring-accent/40" : ""
           }`}
@@ -495,6 +575,7 @@ export function Sidebar({
       )}
 
       {menu && <ContextMenuView />}
+      {hover && <HoverCardView />}
     </nav>
   );
 
@@ -502,15 +583,29 @@ export function Sidebar({
   function ContextMenuView() {
     if (!menu) return null;
     const { entry, inTree } = menu;
-    const fav = favorites.has(entry.relPath);
 
-    const items: {
-      key: string;
-      icon: React.ReactNode;
-      label: string;
-      action: () => void;
-      danger?: boolean;
-    }[] = [];
+    const items: MenuItem[] = [];
+
+    // Root menu (right-click on empty file-list space): create at the vault root.
+    if (entry === null) {
+      if (root) {
+        items.push({
+          key: "newfile",
+          icon: <FilePlus size={14} aria-hidden />,
+          label: "New file",
+          action: () => onCreateUntitled(root),
+        });
+        items.push({
+          key: "newfolder",
+          icon: <FolderPlus size={14} aria-hidden />,
+          label: "New folder",
+          action: () => startCreate(root, "folder"),
+        });
+      }
+      return <ContextMenuList items={items} />;
+    }
+
+    const fav = favorites.has(entry.relPath);
 
     if (!entry.isDir) {
       items.push({
@@ -539,7 +634,7 @@ export function Sidebar({
         key: "newfile",
         icon: <FilePlus size={14} aria-hidden />,
         label: "New file",
-        action: () => startCreate(entry.path, "file"),
+        action: () => onCreateUntitled(entry.path),
       });
       items.push({
         key: "newfolder",
@@ -568,6 +663,12 @@ export function Sidebar({
       danger: true,
     });
 
+    return <ContextMenuList items={items} />;
+  }
+
+  /** Positioned popover that renders a context-menu item list (root or entry). */
+  function ContextMenuList({ items }: { items: MenuItem[] }) {
+    if (!menu) return null;
     const menuH = items.length * 32 + 8;
     const left = Math.max(4, Math.min(menu.x, window.innerWidth - MENU_W - 4));
     const top = Math.max(4, Math.min(menu.y, window.innerHeight - menuH - 4));
@@ -599,6 +700,53 @@ export function Sidebar({
           </li>
         ))}
       </ul>
+    );
+  }
+
+  /** Metadata popover anchored to the hovered row (dates + folder counts). */
+  function HoverCardView() {
+    if (!hover) return null;
+    const { rect, entry } = hover;
+    const counts = entry.isDir ? childCounts.get(entry.relPath) : undefined;
+    const CARD_W = 224;
+    const left = Math.max(4, Math.min(rect.right + 6, window.innerWidth - CARD_W - 4));
+    const top = Math.max(4, Math.min(rect.top, window.innerHeight - 100));
+
+    const countLabel = counts
+      ? `${counts.files} ${counts.files === 1 ? "file" : "files"} · ` +
+        `${counts.dirs} ${counts.dirs === 1 ? "folder" : "folders"}`
+      : "Empty";
+
+    return (
+      <div
+        role="tooltip"
+        style={{ left, top, width: CARD_W }}
+        className="pointer-events-none fixed z-50 rounded-lg border border-line bg-card p-3 text-xs shadow-popover"
+      >
+        <p className="mb-1.5 flex items-center gap-1.5 font-medium text-ink">
+          {entry.isDir ? (
+            <Folder size={13} className="shrink-0 text-faint" aria-hidden />
+          ) : (
+            <FileText size={13} className="shrink-0 text-faint" aria-hidden />
+          )}
+          <span className="truncate">{entry.name}</span>
+        </p>
+        {entry.isDir && <p className="mb-1.5 text-muted">{countLabel}</p>}
+        <dl className="space-y-0.5">
+          <div className="flex justify-between gap-3">
+            <dt className="text-faint">Created</dt>
+            <dd className="text-muted">
+              {entry.created != null ? formatDate(entry.created) : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-faint">Modified</dt>
+            <dd className="text-muted">
+              {entry.modified != null ? formatDate(entry.modified) : "—"}
+            </dd>
+          </div>
+        </dl>
+      </div>
     );
   }
 }

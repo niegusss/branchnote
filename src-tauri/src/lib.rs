@@ -14,6 +14,7 @@ pub fn run() {
             fs::read_file,
             fs::save_file,
             fs::create_file,
+            fs::create_untitled,
             fs::create_folder,
             fs::rename_entry,
             fs::delete_entry,

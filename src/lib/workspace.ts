@@ -30,6 +30,10 @@ export const saveFile = (path: string, content: string) =>
 export const createFile = (dir: string, name: string) =>
   invoke<string>("create_file", { dir, name });
 
+/** Create a default-named ("Untitled") note in `dir`; returns its absolute path. */
+export const createUntitled = (dir: string) =>
+  invoke<string>("create_untitled", { dir });
+
 /** Create a new folder in `dir`; returns its absolute path. */
 export const createFolder = (dir: string, name: string) =>
   invoke<string>("create_folder", { dir, name });

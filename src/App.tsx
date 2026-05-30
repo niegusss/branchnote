@@ -13,8 +13,8 @@ import { Settings } from "./components/Settings";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
 import {
-  createFile,
   createFolder,
+  createUntitled,
   defaultVault,
   deleteEntry,
   listEntries,
@@ -28,6 +28,7 @@ import {
 } from "./lib/workspace";
 import {
   gitCommit,
+  gitGetRemote,
   gitInit,
   gitIsRepo,
   gitLog,
@@ -40,6 +41,7 @@ import {
   gitUnstageAll,
   gitWorktree,
 } from "./lib/git";
+import { applyTemplate } from "./lib/templates";
 import {
   applyTheme,
   getStoredTheme,
@@ -102,6 +104,33 @@ function basename(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
+/** Drop a trailing markdown extension. */
+function stripMd(name: string): string {
+  return name.replace(/\.(md|markdown)$/i, "");
+}
+
+/** The note title = its first line with the leading `#`s stripped, or "". */
+function titleFromDoc(text: string): string {
+  const first = text.split(/\r?\n/, 1)[0] ?? "";
+  return first.replace(/^#+\s*/, "").trim();
+}
+
+/** Replace just the first line of `content` with `# title`, keeping the rest. */
+function setDocTitle(content: string, title: string): string {
+  const nl = content.indexOf("\n");
+  return `# ${title}${nl === -1 ? "" : content.slice(nl)}`;
+}
+
+/** Turn a title into a safe file name (no path separators / illegal chars). */
+function sanitizeFileName(title: string): string {
+  return title
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\.+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
 function formatErr(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
@@ -132,6 +161,8 @@ function App() {
   const [activeId, setActiveId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Path of a just-created note whose editor should focus (cursor at end). */
+  const [focusEditorFor, setFocusEditorFor] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
@@ -158,6 +189,9 @@ function App() {
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState<string | null>(null);
   const [gitNotice, setGitNotice] = useState<string | null>(null);
+  /** Which sync action is in flight (for per-button progress labels). */
+  const [gitBusy, setGitBusy] = useState<"push" | "pull" | null>(null);
+  const [gitHasRemote, setGitHasRemote] = useState(false);
 
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
   const activeDirty = isDirty(active);
@@ -176,6 +210,19 @@ function App() {
         .filter((f) => !f.isDir && favorites.has(f.relPath))
         .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
     [files, favorites],
+  );
+  // User templates: immediate `.md` children of a `templates/` folder.
+  const templateFiles = useMemo(
+    () =>
+      files
+        .filter(
+          (f) =>
+            !f.isDir &&
+            f.relPath.startsWith("templates/") &&
+            !f.relPath.slice("templates/".length).includes("/"),
+        )
+        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+    [files],
   );
 
   /** Convert an absolute path to a vault-relative, forward-slashed path. */
@@ -282,20 +329,23 @@ function App() {
       const repo = await gitIsRepo(v);
       setGitRepo(repo);
       if (repo) {
-        const [st, wt, lg] = await Promise.all([
+        const [st, wt, lg, remote] = await Promise.all([
           gitStatus(v),
           gitWorktree(v),
           gitLog(v, GIT_LOG_LIMIT),
+          gitGetRemote(v),
         ]);
         setGitStatusState(st);
         setGitStaged(wt.staged);
         setGitUnstaged(wt.unstaged);
         setGitLogState(lg);
+        setGitHasRemote(remote != null && remote.trim() !== "");
       } else {
         setGitStatusState(null);
         setGitStaged([]);
         setGitUnstaged([]);
         setGitLogState([]);
+        setGitHasRemote(false);
       }
       setGitError(null);
     } catch (e) {
@@ -339,7 +389,12 @@ function App() {
 
   /** Push the current branch, with a success notice. */
   async function onGitPush() {
-    if (await runGit((v) => gitPush(v))) setGitNotice("Pushed to origin");
+    setGitBusy("push");
+    try {
+      if (await runGit((v) => gitPush(v))) setGitNotice("Pushed to origin");
+    } finally {
+      setGitBusy(null);
+    }
   }
 
   /** Pull (fetch + fast-forward), surfacing the outcome. */
@@ -348,12 +403,15 @@ function App() {
     if (!v) return;
     setGitError(null);
     setGitNotice(null);
+    setGitBusy("pull");
     let outcome: string;
     try {
       outcome = await gitPull(v);
     } catch (e) {
       setGitError(formatErr(e));
       return;
+    } finally {
+      setGitBusy(null);
     }
     await refreshGit();
     setGitNotice(
@@ -391,6 +449,51 @@ function App() {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, saved: draft } : t)));
   }, []);
 
+  /** Rename a tab's file to match its first-line `#` title (quiet — collisions
+   *  are ignored). The H1 is the source of truth for the file name. */
+  const reconcileTitle = useCallback(
+    async (tab: Tab) => {
+      const v = live.current.vaultPath;
+      if (!v || !tab.path) return;
+      const name = sanitizeFileName(titleFromDoc(tab.draft));
+      if (!name || name === stripMd(basename(tab.path))) return;
+      const oldPath = tab.path;
+      let newPath: string;
+      try {
+        newPath = await renameEntry(oldPath, name);
+      } catch {
+        return; // collision / invalid — keep the current name silently
+      }
+      setFiles(await listEntries(v));
+      const oldRel = toRel(oldPath);
+      const newRel = toRel(newPath);
+      setFavorites((prev) => {
+        let changed = false;
+        const next = new Set<string>();
+        for (const r of prev) {
+          if (r === oldRel) {
+            next.add(newRel);
+            changed = true;
+          } else if (r.startsWith(oldRel + "/")) {
+            next.add(newRel + r.slice(oldRel.length));
+            changed = true;
+          } else {
+            next.add(r);
+          }
+        }
+        return changed ? next : prev;
+      });
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.path && isUnder(t.path, oldPath)
+            ? { ...t, path: swapPrefix(t.path, oldPath, newPath) }
+            : t,
+        ),
+      );
+    },
+    [toRel],
+  );
+
   /** Run an async action with busy/error bookkeeping. */
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -410,10 +513,10 @@ function App() {
     const id = active.id;
     const timer = setTimeout(() => {
       const cur = live.current.tabs.find((t) => t.id === id);
-      if (cur) void flushTab(cur);
+      if (cur) void flushTab(cur).then(() => reconcileTitle(cur));
     }, AUTOSAVE_MS);
     return () => clearTimeout(timer);
-  }, [active.id, active.draft, active.path, activeDirty, flushTab]);
+  }, [active.id, active.draft, active.path, activeDirty, flushTab, reconcileTitle]);
 
   // Ctrl/Cmd+S flushes the active tab immediately.
   useEffect(() => {
@@ -422,12 +525,24 @@ function App() {
         e.preventDefault();
         const { tabs: ts, activeId: aid } = live.current;
         const cur = ts.find((t) => t.id === aid) ?? ts[0];
-        if (cur) void run(() => flushTab(cur));
+        if (cur)
+          void run(async () => {
+            await flushTab(cur);
+            await reconcileTitle(cur);
+          });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Suppress the WebView's native context menu everywhere; our own menus (e.g.
+  // the Sidebar's) are React state-driven and unaffected.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
   }, []);
 
   function updateActiveDraft(value: string) {
@@ -553,14 +668,30 @@ function App() {
     });
   }
 
-  async function handleCreateFile(dir: string, name: string) {
+  /** Create a note in `dir` seeded with an empty `# ` heading, open it, focus it. */
+  async function handleCreateUntitled(dir: string) {
     if (!vaultPath) return;
     await run(async () => {
       await flushTab(active);
-      const newPath = await createFile(dir, name);
+      const newPath = await createUntitled(dir);
+      await saveFile(newPath, "# ");
       setFiles(await listEntries(vaultPath));
-      const content = await readFile(newPath);
-      patchTab(active.id, { path: newPath, draft: content, saved: content });
+      patchTab(active.id, { path: newPath, draft: "# ", saved: "# " });
+      setFocusEditorFor(newPath);
+    });
+  }
+
+  /** Create a new note in `dir` from a template body, fill placeholders, open it. */
+  async function handleNewFromTemplate(dir: string, rawBody: string) {
+    if (!vaultPath) return;
+    await run(async () => {
+      await flushTab(active);
+      const newPath = await createUntitled(dir);
+      const body = applyTemplate(rawBody, { title: stripMd(basename(newPath)) });
+      await saveFile(newPath, body);
+      setFiles(await listEntries(vaultPath));
+      patchTab(active.id, { path: newPath, draft: body, saved: body });
+      setFocusEditorFor(newPath);
     });
   }
 
@@ -575,15 +706,33 @@ function App() {
   async function handleRename(path: string, newName: string) {
     if (!vaultPath) return;
     await run(async () => {
+      const isFile = files.find((f) => f.path === path)?.isDir === false;
       const newPath = await renameEntry(path, newName);
+      // Two-way sync: a file rename rewrites its first-line `#` title to match.
+      let newContent: string | null = null;
+      if (isFile) {
+        const bare = stripMd(basename(newPath));
+        const openTab = tabs.find((t) => t.path === path);
+        const base = openTab ? openTab.draft : await readFile(newPath);
+        const updated = setDocTitle(base, bare);
+        if (updated !== base) {
+          await saveFile(newPath, updated);
+          newContent = updated;
+        } else if (openTab) {
+          newContent = updated; // unchanged, but keep the open tab in sync
+        }
+      }
       setFiles(await listEntries(vaultPath));
       swapFavorite(toRel(path), toRel(newPath));
       setTabs((prev) =>
-        prev.map((t) =>
-          t.path && isUnder(t.path, path)
-            ? { ...t, path: swapPrefix(t.path, path, newPath) }
-            : t,
-        ),
+        prev.map((t) => {
+          if (!t.path || !isUnder(t.path, path)) return t;
+          const np = swapPrefix(t.path, path, newPath);
+          if (t.path === path && newContent !== null) {
+            return { ...t, path: np, draft: newContent, saved: newContent };
+          }
+          return { ...t, path: np };
+        }),
       );
     });
   }
@@ -742,6 +891,8 @@ function App() {
                   unstaged={gitUnstaged}
                   log={gitLogState}
                   loading={gitLoading}
+                  busy={gitBusy}
+                  hasRemote={gitHasRemote}
                   error={gitError}
                   notice={gitNotice}
                   onInit={onGitInit}
@@ -770,7 +921,9 @@ function App() {
                   onToggleFavorite={toggleFavorite}
                   onSelect={selectFile}
                   onOpenInNewTab={openInNewTab}
-                  onCreateFile={handleCreateFile}
+                  onCreateUntitled={handleCreateUntitled}
+                  onNewFromTemplate={handleNewFromTemplate}
+                  templateFiles={templateFiles}
                   onCreateFolder={handleCreateFolder}
                   onRename={handleRename}
                   onDelete={handleDelete}
@@ -795,13 +948,17 @@ function App() {
                     value={active.draft}
                     onChange={updateActiveDraft}
                     effectiveTheme={effectiveTheme}
+                    autoFocusEnd={focusEditorFor === active.path}
+                    onAutoFocused={() => setFocusEditorFor(null)}
                   />
                   {previewVisible && <PreviewPane content={active.draft} />}
                 </main>
               ) : (
                 <StartView
                   favoriteFiles={favoriteFiles}
-                  onCreateFile={(name) => handleCreateFile(vaultPath, name)}
+                  templateFiles={templateFiles}
+                  onCreateUntitled={() => handleCreateUntitled(vaultPath)}
+                  onNewFromTemplate={(body) => handleNewFromTemplate(vaultPath, body)}
                   onCreateFolder={(name) => handleCreateFolder(vaultPath, name)}
                   onOpenFile={selectFile}
                   onChangeVault={changeVault}
@@ -816,6 +973,8 @@ function App() {
                 branch: gitRepo === false ? "no repo" : "—",
                 changedFiles: 0,
                 clean: true,
+                ahead: null,
+                behind: null,
               }
             }
             dirty={activeDirty}

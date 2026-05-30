@@ -23,6 +23,18 @@ pub struct FileEntry {
     pub rel_path: String,
     /// True for directories.
     pub is_dir: bool,
+    /// Creation time, seconds since the Unix epoch (None if unavailable).
+    pub created: Option<u64>,
+    /// Last-modified time, seconds since the Unix epoch (None if unavailable).
+    pub modified: Option<u64>,
+}
+
+/// A `SystemTime` as whole seconds since the Unix epoch, or None on error.
+fn secs(t: std::io::Result<std::time::SystemTime>) -> Option<u64> {
+    t.ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
 }
 
 fn is_markdown(path: &Path) -> bool {
@@ -53,6 +65,9 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<FileEntry>) -> std::io::Result<()
         let path = entry.path();
         let file_type = entry.file_type()?;
         let name = entry.file_name().to_string_lossy().to_string();
+        let meta = entry.metadata().ok();
+        let created = meta.as_ref().and_then(|m| secs(m.created()));
+        let modified = meta.as_ref().and_then(|m| secs(m.modified()));
 
         if file_type.is_dir() {
             if skip_dir(&name) {
@@ -63,6 +78,8 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<FileEntry>) -> std::io::Result<()
                 name,
                 rel_path: rel_of(&path, root),
                 is_dir: true,
+                created,
+                modified,
             });
             walk(&path, root, out)?;
         } else if file_type.is_file() && is_markdown(&path) {
@@ -71,6 +88,8 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<FileEntry>) -> std::io::Result<()
                 name,
                 rel_path: rel_of(&path, root),
                 is_dir: false,
+                created,
+                modified,
             });
         }
     }
@@ -141,6 +160,27 @@ pub fn create_file(dir: String, name: String) -> Result<String, String> {
     }
     fs::write(&target, "").map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
+}
+
+/// Create a new empty note with a default name (`Untitled.md`, `Untitled 1.md`,
+/// …) in `dir`, so a note can be added without naming it first. Returns the
+/// absolute path. The user renames it via the editor title (see `rename_entry`).
+#[tauri::command]
+pub fn create_untitled(dir: String) -> Result<String, String> {
+    let dir_path = PathBuf::from(&dir);
+    for i in 0..1000 {
+        let name = if i == 0 {
+            "Untitled.md".to_string()
+        } else {
+            format!("Untitled {i}.md")
+        };
+        let target = dir_path.join(&name);
+        if !target.exists() {
+            fs::write(&target, "").map_err(|e| e.to_string())?;
+            return Ok(target.to_string_lossy().to_string());
+        }
+    }
+    Err("Could not find a free Untitled name".into())
 }
 
 #[tauri::command]

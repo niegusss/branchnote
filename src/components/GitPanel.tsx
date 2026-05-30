@@ -26,6 +26,10 @@ interface GitPanelProps {
   unstaged: GitFileStatus[];
   log: CommitInfo[];
   loading: boolean;
+  /** Which sync action is in flight (per-button progress labels). */
+  busy: "push" | "pull" | null;
+  /** Whether an `origin` remote is configured (gates the sync controls). */
+  hasRemote: boolean;
   error: string | null;
   /** Transient success/info message (e.g. pull outcome). */
   notice: string | null;
@@ -83,6 +87,8 @@ export function GitPanel({
   unstaged,
   log,
   loading,
+  busy,
+  hasRemote,
   error,
   notice,
   onInit,
@@ -240,6 +246,22 @@ export function GitPanel({
 
   const canCommit = message.trim().length > 0 && staged.length > 0 && !committing;
 
+  // Sync state (ahead/behind are null until a tracking ref exists).
+  const ahead = status?.ahead ?? null;
+  const behind = status?.behind ?? null;
+  const canPull = hasRemote && busy === null && (behind === null || behind > 0);
+  const canPush = hasRemote && busy === null && (ahead === null || ahead > 0);
+  const pullTitle = !hasRemote
+    ? "Set a remote in Settings to sync"
+    : behind && behind > 0
+      ? `Pull (${behind} behind)`
+      : "Pull (up to date)";
+  const pushTitle = !hasRemote
+    ? "Set a remote in Settings to sync"
+    : ahead && ahead > 0
+      ? `Push (${ahead} to push)`
+      : "Push (nothing to push)";
+
   return (
     <aside
       className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
@@ -255,21 +277,29 @@ export function GitPanel({
             <button
               type="button"
               onClick={onPull}
-              disabled={loading}
-              title="Pull (fetch + fast-forward)"
+              disabled={!canPull}
+              title={pullTitle}
               className={iconButton}
             >
-              <Download size={14} aria-hidden />
+              {busy === "pull" ? (
+                <RefreshCw size={14} className="animate-spin" aria-hidden />
+              ) : (
+                <Download size={14} aria-hidden />
+              )}
               <span className="sr-only">Pull</span>
             </button>
             <button
               type="button"
               onClick={onPush}
-              disabled={loading}
-              title="Push"
+              disabled={!canPush}
+              title={pushTitle}
               className={iconButton}
             >
-              <Upload size={14} aria-hidden />
+              {busy === "push" ? (
+                <RefreshCw size={14} className="animate-spin" aria-hidden />
+              ) : (
+                <Upload size={14} aria-hidden />
+              )}
               <span className="sr-only">Push</span>
             </button>
             <button

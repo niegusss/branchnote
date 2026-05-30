@@ -7,8 +7,9 @@ AI assist is layered on top — nothing more. Branchnote is built with
 trying to replace Obsidian or Notion.
 
 > **Status:** early development. The editing experience (filesystem, tabs, tree, preview,
-> theming, window chrome) is implemented and usable. **Git sync** and **AI actions** are
-> on the roadmap below and not wired up yet.
+> theming, window chrome) **and the full git workflow** — status, staging, commit,
+> pull/push with ahead/behind, GitHub sign-in and SSH — are implemented and usable.
+> **AI actions** are on the roadmap below and not wired up yet.
 
 ---
 
@@ -48,12 +49,26 @@ trying to replace Obsidian or Notion.
   Obsidian-style left icon rail.
 - 💿 **Persistence** — your vault, theme, sidebar and preview preferences are remembered
   across launches; a default vault is created at `Documents/Branchnote` on first run.
+- 📝 **Note titles** — the title is the note's **first line**, always kept as a `#` heading
+  (large in preview); the **file name follows that heading** automatically. New notes start
+  with `# ` and the cursor ready, so you just type the title.
+- 🧩 **Templates** — *New from template* with built-ins (daily note, meeting notes, TODO)
+  plus your own `.md` files in a `templates/` folder in the vault; `{{title}}` / `{{date}}`
+  / `{{time}}` placeholders are filled on creation.
+- ℹ️ **File metadata** — hover a tree row for created/modified dates and, for folders, the
+  number of files and subfolders inside.
+- 🔁 **Git** — detect/init, status, a full **staging area** (stage/unstage per file or all),
+  commit, and **pull/push** with **ahead/behind counts** and a clear "up to date" state
+  (via `git2`/`libgit2`, no CLI shelling). **Sign in with GitHub** (OAuth device flow — no
+  token copy-pasting) *or* SSH; remote URL + identity live in git config, and the access
+  token is stored in your **OS keychain**.
 
 **Planned** (see [Roadmap](#roadmap))
 
-- 🔁 **Git sync** — repo status, commit-all, pull, push (PAT + SSH) via `git2`/`libgit2`.
 - 🤖 **AI actions** (BYOK) — summarize / rewrite / generate title / generate tags, OpenAI &
   Anthropic, on the current note only.
+- ⌨️ **Editor power-ups** — quick-open / command palette, in-note find/replace,
+  `[[wikilinks]]`, focus mode.
 
 ## Tech stack
 
@@ -66,7 +81,7 @@ trying to replace Obsidian or Notion.
 | Preview | `react-markdown` + `remark-gfm` + `rehype-sanitize` |
 | Icons | `lucide-react` |
 | Filesystem watch (Rust) | `notify` + `notify-debouncer-full` |
-| Git *(planned)* | `git2` / `libgit2` |
+| Git (Rust) | `git2` / `libgit2`, `keyring` (OS keychain), `ureq` (GitHub device flow) |
 
 ## Getting started
 
@@ -111,12 +126,15 @@ npm run tauri build    # produce a platform installer/binary
 ```
 branchnote/
 ├─ src/                     # React + TypeScript frontend
-│  ├─ App.tsx               # app shell + state orchestration (tabs, vault, theme)
-│  ├─ components/           # TitleBar, Rail, Sidebar, TabBar, EditorPane,
-│  │                        # PreviewPane, StartView, StatusBar, Settings, Onboarding
-│  └─ lib/                  # workspace (Tauri IPC), tree, theme, editorTheme, ui
+│  ├─ App.tsx               # app shell + state orchestration (tabs, vault, theme, git)
+│  ├─ components/           # TitleBar, Rail, Sidebar, TabBar, EditorPane, NoteTitle,
+│  │                        # PreviewPane, StartView, StatusBar, GitPanel, TemplatePicker,
+│  │                        # Settings, Onboarding, ConfirmDialog
+│  └─ lib/                  # workspace + git (Tauri IPC), tree, gitTree, templates,
+│                           # format, theme, editorTheme, ui
 └─ src-tauri/               # Rust core (Tauri)
    ├─ src/fs.rs             # filesystem commands (list/read/save/create/rename/delete/move)
+   ├─ src/git.rs            # git via libgit2 (status/stage/commit/pull/push, GitHub sign-in)
    ├─ src/watcher.rs        # debounced filesystem watching → "workspace-changed" events
    ├─ src/lib.rs            # command registration / app setup
    ├─ capabilities/         # Tauri permission capabilities
@@ -124,13 +142,15 @@ branchnote/
 ```
 
 The frontend talks to the Rust core through typed IPC wrappers in
-`src/lib/workspace.ts`; heavy filesystem logic lives in the Rust layer.
+`src/lib/workspace.ts` and `src/lib/git.ts`; heavy filesystem and git logic lives in the
+Rust layer.
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---------|--------|
 | `Ctrl` / `Cmd` + `S` | Save the active note immediately |
+| `Ctrl` / `Cmd` + `Enter` | Commit the staged changes (in the commit box) |
 
 ## Data & privacy
 
@@ -143,10 +163,13 @@ The frontend talks to the Rust core through typed IPC wrappers in
 
 ## Roadmap
 
-- [ ] Git integration: init/detect repo, status, commit-all, pull, push (PAT + SSH)
+- [x] Git integration: init/detect repo, status, staging area, commit, pull/push (PAT + SSH
+      + GitHub sign-in), ahead/behind, remote + identity in Settings, token in OS keychain
+- [x] Markdown templates: built-ins + `templates/` folder, `{{placeholder}}` substitution
 - [ ] BYOK AI actions: summarize, rewrite, generate title, generate tags (OpenAI + Anthropic)
-- [ ] Settings: git remote, AI provider + API keys (stored locally)
-- [ ] Move sensitive persistence (tokens/keys) to a Rust-backed store
+- [ ] Editor power-ups: quick-open / command palette, in-note find/replace, `[[wikilinks]]`,
+      focus mode
+- [ ] Settings: AI provider + API keys (stored locally, reusing the keychain pattern)
 
 Explicit non-goals: realtime collaboration, cloud backend, accounts, plugin ecosystem,
 vector/semantic search, AI agents, mobile or browser versions, WYSIWYG editing.

@@ -13,6 +13,10 @@ export interface FileEntry {
   relPath: string;
   /** True for directories. */
   isDir: boolean;
+  /** Creation time, seconds since the Unix epoch (null if unavailable). */
+  created: number | null;
+  /** Last-modified time, seconds since the Unix epoch (null if unavailable). */
+  modified: number | null;
 }
 
 /** Git working-tree summary surfaced in the status bar. Mirrors Rust `GitStatus`. */
@@ -22,6 +26,10 @@ export interface GitStatus {
   changedFiles: number;
   /** True when the working tree has no changes. */
   clean: boolean;
+  /** Commits ahead of origin/<branch> (to push); null if no tracking ref. */
+  ahead: number | null;
+  /** Commits behind origin/<branch> (to pull); null if no tracking ref. */
+  behind: number | null;
 }
 
 /** A single changed path in the Git panel's "Changes" list. Mirrors Rust `GitFileStatus`. */

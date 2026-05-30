@@ -29,6 +29,10 @@ pub struct GitStatus {
     pub changed_files: u32,
     /// True when the working tree has no changes.
     pub clean: bool,
+    /// Commits ahead of `origin/<branch>` (to push); None if no tracking ref.
+    pub ahead: Option<u32>,
+    /// Commits behind `origin/<branch>` (to pull); None if no tracking ref.
+    pub behind: Option<u32>,
 }
 
 /// One changed path for the Git panel. Mirrors TS `GitFileStatus`.
@@ -165,11 +169,32 @@ pub fn git_status(path: String) -> Result<GitStatus, String> {
             s != Status::CURRENT && !s.is_ignored()
         })
         .count() as u32;
+    let (ahead, behind) = ahead_behind(&repo, &branch);
     Ok(GitStatus {
         branch,
         changed_files: changed,
         clean: changed == 0,
+        ahead,
+        behind,
     })
+}
+
+/// Commits ahead/behind `origin/<branch>` using the local remote-tracking ref
+/// (written on push, refreshed by pull's fetch). None when HEAD is unborn or no
+/// tracking ref exists yet.
+fn ahead_behind(repo: &Repository, branch: &str) -> (Option<u32>, Option<u32>) {
+    let result = (|| {
+        let local = repo.head().ok()?.target()?;
+        let upstream = repo
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .ok()?
+            .target()?;
+        repo.graph_ahead_behind(local, upstream).ok()
+    })();
+    match result {
+        Some((a, b)) => (Some(a as u32), Some(b as u32)),
+        None => (None, None),
+    }
 }
 
 /// The working tree split into staged + unstaged changes for the Git panel.
@@ -527,6 +552,25 @@ pub fn git_push(path: String) -> Result<(), String> {
     remote
         .push(&[refspec.as_str()], Some(&mut po))
         .map_err(|e| e.to_string())?;
+
+    // Make sync "just work" for non-power-users: record upstream tracking so
+    // ahead/behind compute immediately (no manual fetch). Best-effort — the push
+    // already succeeded, so failures here must not fail the command.
+    if let Some(oid) = repo.head().ok().and_then(|h| h.target()) {
+        let _ = repo.reference(
+            &format!("refs/remotes/origin/{branch}"),
+            oid,
+            true,
+            "push: update tracking",
+        );
+        if let Ok(mut cfg) = repo.config() {
+            let _ = cfg.set_str(&format!("branch.{branch}.remote"), "origin");
+            let _ = cfg.set_str(
+                &format!("branch.{branch}.merge"),
+                &format!("refs/heads/{branch}"),
+            );
+        }
+    }
     Ok(())
 }
 

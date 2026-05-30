@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { FilePlus, FolderOpen, FolderPlus, Star } from "lucide-react";
+import { FilePlus, FolderOpen, FolderPlus, LayoutTemplate, Star } from "lucide-react";
 import type { FileEntry } from "../types";
 import { textInput } from "../lib/ui";
+import { TemplatePicker } from "./TemplatePicker";
 
 interface StartViewProps {
   /** Favorited files (folders excluded) for quick-open. */
   favoriteFiles: FileEntry[];
-  onCreateFile: (name: string) => void;
+  /** User template files (under `templates/`) for the New-from-template menu. */
+  templateFiles: FileEntry[];
+  /** Create a default-named note and open it (named via the editor title). */
+  onCreateUntitled: () => void;
+  /** Create a note from a template body (placeholders applied upstream). */
+  onNewFromTemplate: (rawBody: string) => void;
   onCreateFolder: (name: string) => void;
   onOpenFile: (path: string) => void;
   onChangeVault: () => void;
@@ -15,31 +21,25 @@ interface StartViewProps {
 /** Empty-tab landing: create things, jump to favorites, or change vault. */
 export function StartView({
   favoriteFiles,
-  onCreateFile,
+  templateFiles,
+  onCreateUntitled,
+  onNewFromTemplate,
   onCreateFolder,
   onOpenFile,
   onChangeVault,
 }: StartViewProps) {
-  const [creating, setCreating] = useState<"file" | "folder" | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [name, setName] = useState("");
-
-  function start(kind: "file" | "folder") {
-    setCreating(kind);
-    setName("");
-  }
 
   function commit() {
     const trimmed = name.trim();
-    if (trimmed && creating) {
-      if (creating === "file") onCreateFile(trimmed);
-      else onCreateFolder(trimmed);
-    }
-    setCreating(null);
+    if (trimmed) onCreateFolder(trimmed);
+    setCreatingFolder(false);
     setName("");
   }
 
   function cancel() {
-    setCreating(null);
+    setCreatingFolder(false);
     setName("");
   }
 
@@ -54,10 +54,10 @@ export function StartView({
           Create something, open a favorite, or pick another vault.
         </p>
 
-        {creating ? (
+        {creatingFolder ? (
           <div className="mb-5">
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-faint">
-              {creating === "file" ? "New file name" : "New folder name"}
+              New folder name
             </label>
             <input
               autoFocus
@@ -68,17 +68,35 @@ export function StartView({
                 if (e.key === "Enter") commit();
                 if (e.key === "Escape") cancel();
               }}
-              placeholder={creating === "file" ? "name.md" : "folder name"}
+              placeholder="folder name"
               className={textInput}
             />
           </div>
         ) : (
           <div className="mb-5 flex flex-col gap-0.5">
-            <button type="button" onClick={() => start("file")} className={action}>
+            <button type="button" onClick={onCreateUntitled} className={action}>
               <FilePlus size={16} aria-hidden />
               New file
             </button>
-            <button type="button" onClick={() => start("folder")} className={action}>
+            <TemplatePicker
+              templateFiles={templateFiles}
+              onPick={onNewFromTemplate}
+              triggerClassName={action}
+              triggerContent={
+                <>
+                  <LayoutTemplate size={16} aria-hidden />
+                  New from template
+                </>
+              }
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setCreatingFolder(true);
+                setName("");
+              }}
+              className={action}
+            >
               <FolderPlus size={16} aria-hidden />
               New folder
             </button>
