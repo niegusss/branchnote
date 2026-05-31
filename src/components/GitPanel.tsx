@@ -206,7 +206,7 @@ export function GitPanel({
             type="button"
             onClick={() => onAction(node.relPath)}
             title={actionTitle}
-            className="shrink-0 rounded p-1 text-muted opacity-0 transition-colors hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+            className="shrink-0 rounded p-1 text-faint transition-colors hover:bg-hover hover:text-ink"
           >
             <ActionIcon size={14} aria-hidden />
             <span className="sr-only">{actionTitle}</span>
