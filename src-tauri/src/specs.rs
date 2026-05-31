@@ -364,6 +364,83 @@ pub fn set_status(spec_path: String, status: String, today: String) -> Result<()
     fs::write(&path, updated).map_err(|e| format!("Could not save {spec_path}: {e}"))
 }
 
+/// A composed agent handoff: the prompt text and the path it was written to.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffResult {
+    pub path: String,
+    pub content: String,
+}
+
+/// Compose an agent-agnostic handoff prompt from a spec's three files. Pure +
+/// tested; empty plan/tasks become "(none)".
+fn compose_handoff(id: &str, title: &str, dir_rel_path: &str, spec: &str, plan: &str, tasks: &str) -> String {
+    let section = |body: &str| -> String {
+        let t = body.trim();
+        if t.is_empty() { "(none)".to_string() } else { t.to_string() }
+    };
+    format!(
+        "# Agent handoff — {id}: {title}\n\
+         \n\
+         You are an AI coding agent working in this repository. Implement the\n\
+         specification below. Stay within scope, keep changes minimal and reviewable,\n\
+         and tick off items in tasks.md (`- [ ]` -> `- [x]`) as you complete them.\n\
+         \n\
+         Spec folder: {dir_rel_path}\n\
+         \n\
+         ## Specification (spec.md)\n\
+         \n\
+         {spec}\n\
+         \n\
+         ## Plan (plan.md)\n\
+         \n\
+         {plan}\n\
+         \n\
+         ## Tasks (tasks.md)\n\
+         \n\
+         {tasks}\n",
+        spec = section(spec),
+        plan = section(plan),
+        tasks = section(tasks),
+    )
+}
+
+/// Build a context package for an external coding agent: read the spec's
+/// `spec.md`/`plan.md`/`tasks.md`, compose a prompt, write it to `handoff.md` in
+/// the spec folder, and return the path + content (the frontend also copies it to
+/// the clipboard and opens a terminal — the "launchpad"). Rich handoff: Branchnote
+/// never calls a model itself.
+#[tauri::command]
+pub fn write_handoff(root: String, dir_rel_path: String) -> Result<HandoffResult, String> {
+    let dir = PathBuf::from(&root).join(&dir_rel_path);
+    if !dir.is_dir() {
+        return Err(format!("Not a folder: {}", dir.to_string_lossy()));
+    }
+    let spec = fs::read_to_string(dir.join("spec.md"))
+        .map_err(|e| format!("Could not read spec.md: {e}"))?;
+    let fm = parse_frontmatter(&spec);
+    let dir_name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let id = fm.get("id").cloned().unwrap_or_else(|| dir_name.clone());
+    let title = fm
+        .get("title")
+        .filter(|t| !t.is_empty())
+        .cloned()
+        .unwrap_or_else(|| dir_name.clone());
+    let plan = fs::read_to_string(dir.join("plan.md")).unwrap_or_default();
+    let tasks = fs::read_to_string(dir.join("tasks.md")).unwrap_or_default();
+
+    let content = compose_handoff(&id, &title, &dir_rel_path, &spec, &plan, &tasks);
+    let path = dir.join("handoff.md");
+    fs::write(&path, &content).map_err(|e| format!("Could not write handoff.md: {e}"))?;
+    Ok(HandoffResult {
+        path: path.to_string_lossy().to_string(),
+        content,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,6 +512,30 @@ mod tests {
         assert!(out.contains("status: done"));
         assert!(!out.contains("status: draft"));
         assert!(out.contains("# Body"));
+    }
+
+    #[test]
+    fn compose_handoff_includes_sections() {
+        let out = compose_handoff(
+            "SPEC-001",
+            "User Auth",
+            "specs/SPEC-001-user-auth",
+            "spec body here",
+            "plan body here",
+            "- [ ] T001 do it",
+        );
+        assert!(out.contains("SPEC-001"));
+        assert!(out.contains("User Auth"));
+        assert!(out.contains("specs/SPEC-001-user-auth"));
+        assert!(out.contains("spec body here"));
+        assert!(out.contains("plan body here"));
+        assert!(out.contains("- [ ] T001 do it"));
+    }
+
+    #[test]
+    fn compose_handoff_marks_missing_sections() {
+        let out = compose_handoff("SPEC-002", "X", "specs/x", "only spec", "", "   ");
+        assert!(out.contains("(none)"));
     }
 
     #[test]

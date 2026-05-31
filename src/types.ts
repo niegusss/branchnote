@@ -52,6 +52,14 @@ export interface Spec {
   progress: SpecProgress;
 }
 
+/** A composed agent handoff package. Mirrors Rust `HandoffResult`. */
+export interface HandoffResult {
+  /** Absolute path of the written `handoff.md`. */
+  path: string;
+  /** The composed prompt text (also copied to the clipboard). */
+  content: string;
+}
+
 /** Git working-tree summary surfaced in the status bar. Mirrors Rust `GitStatus`. */
 export interface GitStatus {
   branch: string;

@@ -8,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(watcher::WatcherState::default())
         .invoke_handler(tauri::generate_handler![
             fs::default_vault,
@@ -25,6 +26,7 @@ pub fn run() {
             specs::create_spec,
             specs::scan_specs,
             specs::set_status,
+            specs::write_handoff,
             git::git_is_repo,
             git::git_init,
             git::git_status,

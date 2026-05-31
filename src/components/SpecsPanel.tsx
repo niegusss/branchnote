@@ -5,6 +5,7 @@ import {
   ChevronRight,
   FileText,
   Plus,
+  Rocket,
 } from "lucide-react";
 import type { FileEntry, Spec, SpecStatus } from "../types";
 import { SPEC_STATUSES, specProgressPct, statusMismatch } from "../lib/specs";
@@ -19,6 +20,8 @@ interface SpecsPanelProps {
   onOpenFile: (path: string) => void;
   onCreateSpec: (title: string) => void;
   onSetStatus: (spec: Spec, status: SpecStatus) => void;
+  /** Compose a context package for an external agent and launch (file + clipboard + terminal). */
+  onHandoff: (spec: Spec) => void;
 }
 
 /** Active-row treatment, matching the Sidebar. */
@@ -51,6 +54,7 @@ export function SpecsPanel({
   onOpenFile,
   onCreateSpec,
   onSetStatus,
+  onHandoff,
 }: SpecsPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -211,8 +215,20 @@ export function SpecsPanel({
                   </div>
 
                   {isOpen && (
-                    <ul className="ml-5 border-l border-line pl-1">
-                      {kids.length === 0 ? (
+                    <>
+                      <div className="px-2 pb-1">
+                        <button
+                          type="button"
+                          onClick={() => onHandoff(spec)}
+                          title="Compose a context package, copy it, open it, and open a terminal"
+                          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10 active:scale-[0.99]"
+                        >
+                          <Rocket size={13} aria-hidden />
+                          Hand off to agent
+                        </button>
+                      </div>
+                      <ul className="ml-5 border-l border-line pl-1">
+                        {kids.length === 0 ? (
                         <li className="px-2 py-1 text-xs text-faint">No files</li>
                       ) : (
                         kids.map((f) => (
@@ -232,8 +248,9 @@ export function SpecsPanel({
                             </button>
                           </li>
                         ))
-                      )}
-                    </ul>
+                        )}
+                      </ul>
+                    </>
                   )}
                 </li>
               );

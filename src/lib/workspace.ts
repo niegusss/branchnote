@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FileEntry, NoteLinks, Spec, SpecStatus } from "../types";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import type { FileEntry, HandoffResult, NoteLinks, Spec, SpecStatus } from "../types";
 
 /**
  * Typed wrappers over the Tauri Rust core commands (see `src-tauri/src/fs.rs`,
@@ -39,6 +40,13 @@ export const scanSpecs = (root: string) => invoke<Spec[]>("scan_specs", { root }
 /** Set a spec's status by rewriting its `spec.md` frontmatter. */
 export const setSpecStatus = (specPath: string, status: SpecStatus, today: string) =>
   invoke<void>("set_status", { specPath, status, today });
+
+/** Compose + write `handoff.md` for a spec; returns its path and the prompt text. */
+export const writeHandoff = (root: string, dirRelPath: string) =>
+  invoke<HandoffResult>("write_handoff", { root, dirRelPath });
+
+/** Copy text to the OS clipboard. */
+export const copyText = (text: string) => writeText(text);
 
 export const readFile = (path: string) => invoke<string>("read_file", { path });
 

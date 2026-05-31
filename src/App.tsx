@@ -39,6 +39,7 @@ import {
   deleteEntry,
   listEntries,
   moveEntry,
+  copyText,
   createSpec,
   onWorkspaceChanged,
   openTerminal,
@@ -50,6 +51,7 @@ import {
   scanSpecs,
   setSpecStatus,
   watchFolder,
+  writeHandoff,
 } from "./lib/workspace";
 import { buildGraph, type GraphEdge, type GraphNode } from "./lib/graph";
 import { todayISO } from "./lib/specs";
@@ -799,6 +801,21 @@ function App() {
     });
   }
 
+  /** Compose a context package for an external agent: write `handoff.md`, copy it
+   *  to the clipboard, open it for review, and open a terminal in the vault. */
+  async function onHandoff(spec: Spec) {
+    if (!vaultPath) return;
+    try {
+      const res = await writeHandoff(vaultPath, spec.dirRelPath);
+      setFiles(await listEntries(vaultPath));
+      await copyText(res.content);
+      await selectFile(res.path);
+      await openTerminal(vaultPath);
+    } catch (e) {
+      setError(formatErr(e));
+    }
+  }
+
   /** Set a spec's status (a human declaration), then re-project the list. */
   async function onSetSpecStatus(spec: Spec, status: SpecStatus) {
     if (!vaultPath) return;
@@ -1103,6 +1120,7 @@ function App() {
                   onOpenFile={selectFile}
                   onCreateSpec={(title) => void onCreateSpec(title)}
                   onSetStatus={(spec, status) => void onSetSpecStatus(spec, status)}
+                  onHandoff={(spec) => void onHandoff(spec)}
                 />
               ) : sidebarView === "git" ? (
                 <GitPanel
