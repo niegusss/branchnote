@@ -1,5 +1,13 @@
+import { useEffect, useMemo, useRef } from "react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { EditorState } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
+import { search, searchKeymap } from "@codemirror/search";
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { darkEditorTheme, lightEditorTheme } from "../lib/editorTheme";
 
@@ -11,6 +19,8 @@ interface EditorPaneProps {
   autoFocusEnd?: boolean;
   /** Called once after an autoFocusEnd focus, so the parent can clear its signal. */
   onAutoFocused?: () => void;
+  /** Note basenames offered as `[[wikilink]]` autocompletions. */
+  wikiNames?: string[];
 }
 
 /**
@@ -26,13 +36,36 @@ const enforceHeading = EditorState.transactionFilter.of((tr) => {
   return [tr, { changes: { from: 0, insert: "# " } }];
 });
 
-// Markdown grammar only — we deliberately don't load every language grammar
-// (`@codemirror/language-data`) to keep the bundle lean per the brief.
-const extensions = [
-  markdown({ base: markdownLanguage }),
-  EditorView.lineWrapping,
-  enforceHeading,
-];
+/** Completion source for `[[wikilinks]]`: once `[[` is typed, suggest note
+ *  names (read live from a ref so the editor isn't rebuilt as files change). */
+function wikiCompletions(
+  namesRef: React.MutableRefObject<string[]>,
+) {
+  return (ctx: CompletionContext): CompletionResult | null => {
+    const before = ctx.matchBefore(/\[\[[^\]\n]*$/);
+    if (!before) return null;
+    const names = namesRef.current;
+    if (names.length === 0) return null;
+    return {
+      from: before.from + 2,
+      options: names.map((n) => ({
+        label: n,
+        type: "text",
+        // `closeBrackets` may have already inserted the closing `]]` when `[[`
+        // was typed — only add it ourselves if it isn't already there, so we
+        // never end up with `[[name]]]]`. Cursor lands after the closing `]]`.
+        apply: (view: EditorView, _c: unknown, from: number, to: number) => {
+          const hasClose = view.state.sliceDoc(to, to + 2) === "]]";
+          view.dispatch({
+            changes: { from, to, insert: hasClose ? n : n + "]]" },
+            selection: { anchor: from + n.length + 2 },
+          });
+        },
+      })),
+      validFor: /^[^\]\n]*$/,
+    };
+  };
+}
 
 /**
  * Plain markdown editor (CodeMirror 6). No rich-text / WYSIWYG — the brief
@@ -44,7 +77,29 @@ export function EditorPane({
   effectiveTheme,
   autoFocusEnd,
   onAutoFocused,
+  wikiNames,
 }: EditorPaneProps) {
+  // Latest note names for the wikilink completion source, without rebuilding
+  // the editor (extensions stay stable; the source reads this ref).
+  const namesRef = useRef<string[]>(wikiNames ?? []);
+  useEffect(() => {
+    namesRef.current = wikiNames ?? [];
+  }, [wikiNames]);
+
+  // Markdown grammar only — we deliberately don't load every language grammar
+  // (`@codemirror/language-data`) to keep the bundle lean per the brief.
+  const extensions = useMemo(
+    () => [
+      markdown({ base: markdownLanguage }),
+      EditorView.lineWrapping,
+      enforceHeading,
+      search({ top: true }),
+      keymap.of(searchKeymap),
+      autocompletion({ override: [wikiCompletions(namesRef)] }),
+    ],
+    [],
+  );
+
   return (
     <section
       aria-label="Markdown editor"

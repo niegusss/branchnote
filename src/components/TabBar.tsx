@@ -1,4 +1,4 @@
-import { PanelRightClose, PanelRightOpen, Plus, X } from "lucide-react";
+import { Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Plus, X } from "lucide-react";
 
 export interface TabView {
   id: string;
@@ -15,6 +15,8 @@ interface TabBarProps {
   onNewTab: () => void;
   previewVisible: boolean;
   onTogglePreview: () => void;
+  focusMode: boolean;
+  onToggleFocusMode: () => void;
 }
 
 /** Horizontal strip of open editor tabs, sitting atop the editor column. */
@@ -25,6 +27,8 @@ export function TabBar({
   onNewTab,
   previewVisible,
   onTogglePreview,
+  focusMode,
+  onToggleFocusMode,
 }: TabBarProps) {
   const editorBtn =
     "flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40";
@@ -85,6 +89,22 @@ export function TabBar({
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5 border-l border-line px-1.5">
+        <button
+          type="button"
+          onClick={onToggleFocusMode}
+          title={focusMode ? "Exit focus mode (Ctrl+Shift+F)" : "Focus mode (Ctrl+Shift+F)"}
+          aria-pressed={focusMode}
+          className={editorBtn}
+        >
+          {focusMode ? (
+            <Minimize2 size={16} aria-hidden />
+          ) : (
+            <Maximize2 size={16} aria-hidden />
+          )}
+          <span className="sr-only">
+            {focusMode ? "Exit focus mode" : "Focus mode"}
+          </span>
+        </button>
         <button
           type="button"
           onClick={onTogglePreview}

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FileEntry } from "../types";
+import type { FileEntry, NoteLinks } from "../types";
 
 /**
  * Typed wrappers over the Tauri Rust core commands (see `src-tauri/src/fs.rs`,
@@ -20,6 +20,10 @@ export const defaultVault = () => invoke<string>("default_vault");
 /** List markdown files and folders under `root`. */
 export const listEntries = (root: string) =>
   invoke<FileEntry[]>("list_entries", { root });
+
+/** Scan every note under `root` for `[[wikilink]]` targets (for the graph). */
+export const scanLinks = (root: string) =>
+  invoke<NoteLinks[]>("scan_links", { root });
 
 export const readFile = (path: string) => invoke<string>("read_file", { path });
 

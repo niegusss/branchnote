@@ -103,3 +103,90 @@ html.dark {
 .cm-editor.cm-focused {
   outline: none;
 }
+
+/* ---- CodeMirror search/replace panel (Ctrl+F) ------------------------- */
+.cm-editor .cm-panels {
+  background-color: rgb(var(--color-panel));
+  color: rgb(var(--color-ink));
+  border-color: rgb(var(--color-line));
+}
+
+.cm-editor .cm-panels.cm-panels-top {
+  border-bottom: 1px solid rgb(var(--color-line));
+}
+
+.cm-editor .cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-family: theme("fontFamily.sans");
+  font-size: 12px;
+}
+
+.cm-editor .cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--color-muted));
+}
+
+.cm-editor .cm-search .cm-textfield {
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-ink));
+  border: 1px solid rgb(var(--color-line-strong));
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 12px;
+}
+
+.cm-editor .cm-search .cm-textfield:focus {
+  outline: none;
+  border-color: rgb(var(--color-accent));
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.3);
+}
+
+.cm-editor .cm-search .cm-button {
+  background-image: none;
+  background-color: rgb(var(--color-card));
+  color: rgb(var(--color-ink));
+  border: 1px solid rgb(var(--color-line));
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  transition: background-color 0.12s;
+}
+
+.cm-editor .cm-search .cm-button:hover {
+  background-color: rgb(var(--color-hover));
+}
+
+.cm-editor .cm-panel.cm-search [name="close"] {
+  color: rgb(var(--color-muted));
+  font-size: 18px;
+  padding: 0 4px;
+}
+
+.cm-editor .cm-panel.cm-search [name="close"]:hover {
+  color: rgb(var(--color-ink));
+}
+
+/* ---- Wikilinks (preview) ---------------------------------------------- */
+.wikilink {
+  color: rgb(var(--color-accent));
+  text-decoration: none;
+  cursor: pointer;
+  border-bottom: 1px solid rgb(var(--color-accent) / 0.35);
+}
+
+.wikilink:hover {
+  border-bottom-color: rgb(var(--color-accent));
+}
+
+/* A wikilink whose target note doesn't exist yet — dimmed, dashed. */
+.wikilink-missing {
+  color: rgb(var(--color-muted));
+  border-bottom-style: dashed;
+  border-bottom-color: rgb(var(--color-muted) / 0.5);
+}

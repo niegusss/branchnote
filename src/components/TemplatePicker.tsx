@@ -3,6 +3,7 @@ import { FileText, LayoutTemplate } from "lucide-react";
 import type { FileEntry } from "../types";
 import { readFile } from "../lib/workspace";
 import { BUILT_IN_TEMPLATES } from "../lib/templates";
+import { focusFirstItem, menuKeyDown } from "../lib/menuNav";
 
 interface TemplatePickerProps {
   /** User templates: `.md` files in the vault's `templates/` folder. */
@@ -48,6 +49,13 @@ export function TemplatePicker({
     };
   }, [open]);
 
+  // Return focus to the trigger when the popover closes.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) btnRef.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
+
   function toggle(e: React.MouseEvent) {
     e.stopPropagation();
     setAnchor(e.currentTarget.getBoundingClientRect());
@@ -79,12 +87,18 @@ export function TemplatePicker({
       </button>
       {open && anchor && (
         <ul
+          ref={focusFirstItem}
           role="menu"
+          aria-label="New from template"
+          onKeyDown={menuKeyDown}
           onClick={(e) => e.stopPropagation()}
           style={{ left, top, width: POPOVER_W }}
           className="fixed z-50 max-h-80 overflow-y-auto rounded-lg border border-line bg-card py-1 text-sm shadow-popover"
         >
-          <li className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-faint">
+          <li
+            role="presentation"
+            className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-faint"
+          >
             Templates
           </li>
           {BUILT_IN_TEMPLATES.map((t) => (
@@ -102,7 +116,10 @@ export function TemplatePicker({
           ))}
           {templateFiles.length > 0 && (
             <>
-              <li className="mt-1 border-t border-line px-3 pb-1 pt-1.5 text-xs font-medium uppercase tracking-wide text-faint">
+              <li
+                role="presentation"
+                className="mt-1 border-t border-line px-3 pb-1 pt-1.5 text-xs font-medium uppercase tracking-wide text-faint"
+              >
                 From templates/
               </li>
               {templateFiles.map((f) => (

@@ -19,6 +19,14 @@ export interface FileEntry {
   modified: number | null;
 }
 
+/** Outgoing `[[wikilink]]` targets of one note. Mirrors Rust `NoteLinks`. */
+export interface NoteLinks {
+  /** Path relative to the workspace root, forward-slashed. */
+  relPath: string;
+  /** Raw link targets (alias dropped); resolved to notes on the frontend. */
+  targets: string[];
+}
+
 /** Git working-tree summary surfaced in the status bar. Mirrors Rust `GitStatus`. */
 export interface GitStatus {
   branch: string;

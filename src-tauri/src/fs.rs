@@ -226,6 +226,76 @@ pub fn delete_entry(path: String) -> Result<(), String> {
     result.map_err(|e| format!("Could not delete {path}: {e}"))
 }
 
+/// Outgoing `[[wikilink]]` targets of one note (for the graph view).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteLinks {
+    pub rel_path: String,
+    /// Raw link targets (alias dropped); the frontend resolves them to notes.
+    pub targets: Vec<String>,
+}
+
+/// Extract `[[wikilink]]` targets from markdown, dropping any `|alias`. Targets
+/// that are empty or span a line break are ignored.
+fn extract_links(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    while let Some(open) = rest.find("[[") {
+        let after = &rest[open + 2..];
+        match after.find("]]") {
+            Some(close) => {
+                let inner = &after[..close];
+                let target = inner.split('|').next().unwrap_or("").trim();
+                if !target.is_empty() && !target.contains('\n') {
+                    out.push(target.to_string());
+                }
+                rest = &after[close + 2..];
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+fn walk_links(dir: &Path, root: &Path, out: &mut Vec<NoteLinks>) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if file_type.is_dir() {
+            if skip_dir(&name) {
+                continue;
+            }
+            walk_links(&path, root, out)?;
+        } else if file_type.is_file() && is_markdown(&path) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                let targets = extract_links(&content);
+                if !targets.is_empty() {
+                    out.push(NoteLinks {
+                        rel_path: rel_of(&path, root),
+                        targets,
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Scan every note under `root` for `[[wikilink]]` targets in a single pass, so
+/// the graph view can build its edge set without N round-trips from the frontend.
+#[tauri::command]
+pub fn scan_links(root: String) -> Result<Vec<NoteLinks>, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("Not a folder: {root}"));
+    }
+    let mut out = Vec::new();
+    walk_links(&root_path, &root_path, &mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 /// Move a file or folder into `dest_dir`. Rejects overwrites and moving a
 /// folder into itself or one of its descendants.
 #[tauri::command]
@@ -257,4 +327,24 @@ pub fn move_entry(src: String, dest_dir: String) -> Result<String, String> {
     }
     fs::rename(&src_path, &target).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_links_basic() {
+        let md = "# Title\nSee [[Alpha]] and [[Beta|the beta]].\nNo link.\n[[ Gamma ]]";
+        assert_eq!(
+            extract_links(md),
+            vec!["Alpha".to_string(), "Beta".to_string(), "Gamma".to_string()],
+        );
+    }
+
+    #[test]
+    fn extract_links_ignores_unclosed_and_empty() {
+        assert!(extract_links("plain [single] and [[unclosed").is_empty());
+        assert!(extract_links("[[]] [[ | alias ]]").is_empty());
+    }
 }

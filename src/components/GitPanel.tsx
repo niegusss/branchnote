@@ -31,6 +31,8 @@ interface GitPanelProps {
   /** Whether an `origin` remote is configured (gates the sync controls). */
   hasRemote: boolean;
   error: string | null;
+  /** Advisory message needing user action (e.g. a diverged pull). */
+  warn: string | null;
   /** Transient success/info message (e.g. pull outcome). */
   notice: string | null;
   onInit: () => void;
@@ -90,6 +92,7 @@ export function GitPanel({
   busy,
   hasRemote,
   error,
+  warn,
   notice,
   onInit,
   onRefresh,
@@ -328,7 +331,15 @@ export function GitPanel({
           {error}
         </p>
       )}
-      {notice && !error && (
+      {warn && !error && (
+        <p
+          role="status"
+          className="border-b border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
+        >
+          {warn}
+        </p>
+      )}
+      {notice && !error && !warn && (
         <p className="border-b border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
           {notice}
         </p>

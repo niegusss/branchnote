@@ -12,7 +12,24 @@ import { GitPanel } from "./components/GitPanel";
 import { Settings } from "./components/Settings";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
+import { QuickOpen, type Command } from "./components/QuickOpen";
+import { GraphView } from "./components/GraphView";
 import {
+  Download,
+  FilePlus,
+  FolderOpen,
+  FolderPlus,
+  GitBranch,
+  Maximize2,
+  Network,
+  PanelRight,
+  Settings as SettingsIcon,
+  Star,
+  SunMoon,
+  Upload,
+} from "lucide-react";
+import {
+  createFile,
   createFolder,
   createUntitled,
   defaultVault,
@@ -24,8 +41,10 @@ import {
   readFile,
   renameEntry,
   saveFile,
+  scanLinks,
   watchFolder,
 } from "./lib/workspace";
+import { buildGraph, type GraphEdge, type GraphNode } from "./lib/graph";
 import {
   gitCommit,
   gitGetRemote,
@@ -42,6 +61,7 @@ import {
   gitWorktree,
 } from "./lib/git";
 import { applyTemplate } from "./lib/templates";
+import { normalizeTarget } from "./lib/wikilinks";
 import {
   applyTheme,
   getStoredTheme,
@@ -165,6 +185,16 @@ function App() {
   const [focusEditorFor, setFocusEditorFor] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null);
+  /** Ctrl/Cmd+P file palette. */
+  const [quickOpen, setQuickOpen] = useState(false);
+  /** Focus mode hides the sidebar + preview, centring the editor (Ctrl+Shift+F). */
+  const [focusMode, setFocusMode] = useState(false);
+  /** Graph view occupies the main area when open. */
+  const [graphOpen, setGraphOpen] = useState(false);
+  const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] }>({
+    nodes: [],
+    edges: [],
+  });
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     const v = localStorage.getItem(PREVIEW_KEY);
     return v === null ? true : v === "true";
@@ -188,6 +218,8 @@ function App() {
   const [gitLogState, setGitLogState] = useState<CommitInfo[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState<string | null>(null);
+  /** Advisory git message needing user action (e.g. a diverged pull). */
+  const [gitWarn, setGitWarn] = useState<string | null>(null);
   const [gitNotice, setGitNotice] = useState<string | null>(null);
   /** Which sync action is in flight (for per-button progress labels). */
   const [gitBusy, setGitBusy] = useState<"push" | "pull" | null>(null);
@@ -223,6 +255,15 @@ function App() {
         )
         .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
     [files],
+  );
+  // Note basenames for `[[wikilink]]` autocomplete + existence styling.
+  const wikiNames = useMemo(
+    () => files.filter((f) => !f.isDir).map((f) => stripMd(f.name)),
+    [files],
+  );
+  const wikiTargets = useMemo(
+    () => new Set(wikiNames.map(normalizeTarget)),
+    [wikiNames],
   );
 
   /** Convert an absolute path to a vault-relative, forward-slashed path. */
@@ -375,6 +416,7 @@ function App() {
       const v = live.current.vaultPath;
       if (!v) return false;
       setGitNotice(null);
+      setGitWarn(null);
       try {
         await fn(v);
       } catch (e) {
@@ -403,6 +445,7 @@ function App() {
     if (!v) return;
     setGitError(null);
     setGitNotice(null);
+    setGitWarn(null);
     setGitBusy("pull");
     let outcome: string;
     try {
@@ -414,17 +457,22 @@ function App() {
       setGitBusy(null);
     }
     await refreshGit();
-    setGitNotice(
-      outcome === "up-to-date"
-        ? "Already up to date"
-        : outcome === "fast-forward"
-          ? "Fast-forwarded from origin"
-          : "Diverged from origin — resolve manually",
-    );
+    if (outcome === "up-to-date") {
+      setGitNotice("Already up to date");
+    } else if (outcome === "fast-forward") {
+      setGitNotice("Fast-forwarded from origin");
+    } else {
+      setGitWarn(
+        "Branch has diverged: you have local commits and origin has new ones. " +
+          "Merge or rebase (e.g. `git pull --rebase` in a terminal), then push.",
+      );
+    }
   }
 
   // Load git state when the vault changes; clear it when there's no vault.
   useEffect(() => {
+    setGitWarn(null);
+    setGitNotice(null);
     if (!vaultPath) {
       setGitRepo(null);
       setGitStatusState(null);
@@ -436,6 +484,22 @@ function App() {
     setGitRepo(null); // show the panel's loading state while detecting
     void refreshGit();
   }, [vaultPath, refreshGit]);
+
+  // Build the wikilink graph when it's open (and refresh as files change).
+  useEffect(() => {
+    if (!graphOpen || !vaultPath) return;
+    let cancelled = false;
+    void scanLinks(vaultPath)
+      .then((links) => {
+        if (!cancelled) setGraphData(buildGraph(files, links));
+      })
+      .catch(() => {
+        if (!cancelled) setGraphData({ nodes: [], edges: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [graphOpen, vaultPath, files]);
 
   function patchTab(id: string, patch: Partial<Tab>) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -535,6 +599,23 @@ function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Editor power-ups: Ctrl/Cmd+P opens the quick-open palette; Ctrl+Shift+F
+  // toggles focus mode. (Ctrl+F is the editor's own find panel.)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setQuickOpen((v) => !v);
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFocusMode((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Suppress the WebView's native context menu everywhere; our own menus (e.g.
@@ -650,6 +731,7 @@ function App() {
 
   /** Open a file in the active tab (replacing its content). */
   async function selectFile(path: string) {
+    setGraphOpen(false);
     if (active.path === path) return;
     await run(async () => {
       await flushTab(active);
@@ -660,11 +742,33 @@ function App() {
 
   /** Open a file in a brand-new tab. */
   async function openInNewTab(path: string) {
+    setGraphOpen(false);
     await run(async () => {
       const content = await readFile(path);
       const tab: Tab = { id: newId(), path, draft: content, saved: content };
       setTabs((prev) => [...prev, tab]);
       setActiveId(tab.id);
+    });
+  }
+
+  /** Open the note a `[[wikilink]]` targets, creating it (seeded with the title)
+   *  if no note with that name exists yet. */
+  async function onOpenWikilink(target: string) {
+    if (!vaultPath) return;
+    const want = normalizeTarget(target);
+    const match = files.find((f) => !f.isDir && normalizeTarget(f.name) === want);
+    if (match) {
+      void selectFile(match.path);
+      return;
+    }
+    await run(async () => {
+      await flushTab(active);
+      const newPath = await createFile(vaultPath, sanitizeFileName(target) || "Untitled");
+      const body = `# ${target}\n`;
+      await saveFile(newPath, body);
+      setFiles(await listEntries(vaultPath));
+      patchTab(active.id, { path: newPath, draft: body, saved: body });
+      setFocusEditorFor(newPath);
     });
   }
 
@@ -841,6 +945,27 @@ function App() {
     active: t.id === active.id,
   }));
 
+  const ic = (node: React.ReactNode) => node;
+  const nextTheme: Theme =
+    theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+  // Quick actions shown above files in the command palette (Ctrl/Cmd+P).
+  const commands: Command[] = vaultPath
+    ? [
+        { id: "new-file", label: "New file", keywords: "create note", icon: ic(<FilePlus size={14} />), run: () => void handleCreateUntitled(vaultPath) },
+        { id: "new-folder", label: "New folder", keywords: "create directory", icon: ic(<FolderPlus size={14} />), run: () => void handleCreateFolder(vaultPath, "Untitled folder") },
+        { id: "toggle-preview", label: previewVisible ? "Hide preview" : "Show preview", keywords: "markdown render", icon: ic(<PanelRight size={14} />), run: () => setPreviewVisible((v) => !v) },
+        { id: "focus-mode", label: focusMode ? "Exit focus mode" : "Focus mode", hint: "Ctrl+Shift+F", keywords: "distraction free", icon: ic(<Maximize2 size={14} />), run: () => setFocusMode((v) => !v) },
+        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => setGraphOpen(true) },
+        { id: "theme", label: `Theme: switch to ${nextTheme}`, keywords: "dark light system appearance", icon: ic(<SunMoon size={14} />), run: () => changeTheme(nextTheme) },
+        { id: "git", label: "Open Source control", keywords: "git version", icon: ic(<GitBranch size={14} />), run: () => onActivateView("git") },
+        { id: "git-pull", label: "Git: Pull", keywords: "fetch sync", icon: ic(<Download size={14} />), run: () => void onGitPull() },
+        { id: "git-push", label: "Git: Push", keywords: "sync upload", icon: ic(<Upload size={14} />), run: () => void onGitPush() },
+        { id: "favorites", label: "Show favorites", keywords: "starred", icon: ic(<Star size={14} />), run: () => onActivateView("favorites") },
+        { id: "settings", label: "Open Settings", keywords: "preferences config", icon: ic(<SettingsIcon size={14} />), run: () => setSettingsOpen(true) },
+        { id: "change-vault", label: "Change vault…", keywords: "open folder workspace", icon: ic(<FolderOpen size={14} />), run: () => void changeVault() },
+      ]
+    : [];
+
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
       <TitleBar
@@ -880,9 +1005,13 @@ function App() {
               sidebarVisible={sidebarVisible}
               onActivateView={onActivateView}
               onOpenSettings={() => setSettingsOpen(true)}
+              onQuickOpen={() => setQuickOpen(true)}
+              graphActive={graphOpen}
+              onToggleGraph={() => setGraphOpen((v) => !v)}
             />
 
             {sidebarVisible &&
+              !focusMode &&
               (sidebarView === "git" ? (
                 <GitPanel
                   isRepo={gitRepo}
@@ -894,6 +1023,7 @@ function App() {
                   busy={gitBusy}
                   hasRemote={gitHasRemote}
                   error={gitError}
+                  warn={gitWarn}
                   notice={gitNotice}
                   onInit={onGitInit}
                   onRefresh={() => void refreshGit()}
@@ -939,9 +1069,21 @@ function App() {
                 onNewTab={newTab}
                 previewVisible={previewVisible}
                 onTogglePreview={() => setPreviewVisible((v) => !v)}
+                focusMode={focusMode}
+                onToggleFocusMode={() => setFocusMode((v) => !v)}
               />
 
-              {active.path ? (
+              {graphOpen ? (
+                <GraphView
+                  nodes={graphData.nodes}
+                  edges={graphData.edges}
+                  onOpenFile={(rel) => {
+                    const f = files.find((x) => x.relPath === rel && !x.isDir);
+                    if (f) void selectFile(f.path);
+                  }}
+                  onClose={() => setGraphOpen(false)}
+                />
+              ) : active.path ? (
                 <main className="flex min-h-0 flex-1">
                   <EditorPane
                     key={active.id}
@@ -950,8 +1092,15 @@ function App() {
                     effectiveTheme={effectiveTheme}
                     autoFocusEnd={focusEditorFor === active.path}
                     onAutoFocused={() => setFocusEditorFor(null)}
+                    wikiNames={wikiNames}
                   />
-                  {previewVisible && <PreviewPane content={active.draft} />}
+                  {previewVisible && !focusMode && (
+                    <PreviewPane
+                      content={active.draft}
+                      wikiTargets={wikiTargets}
+                      onOpenWikilink={onOpenWikilink}
+                    />
+                  )}
                 </main>
               ) : (
                 <StartView
@@ -989,6 +1138,16 @@ function App() {
           vaultPath={vaultPath}
           onChangeVault={changeVault}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {quickOpen && vaultPath && (
+        <QuickOpen
+          files={files}
+          commands={commands}
+          onOpen={selectFile}
+          onOpenInNewTab={openInNewTab}
+          onClose={() => setQuickOpen(false)}
         />
       )}
 

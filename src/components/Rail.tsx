@@ -1,4 +1,11 @@
-import { FolderTree, GitBranch, Settings as SettingsIcon, Star } from "lucide-react";
+import {
+  FolderTree,
+  GitBranch,
+  Network,
+  Search,
+  Settings as SettingsIcon,
+  Star,
+} from "lucide-react";
 
 export type SidebarView = "files" | "favorites" | "git";
 
@@ -7,6 +14,11 @@ interface RailProps {
   sidebarVisible: boolean;
   onActivateView: (view: SidebarView) => void;
   onOpenSettings: () => void;
+  /** Open the command palette (Ctrl/Cmd+P). */
+  onQuickOpen: () => void;
+  /** Whether the graph view is showing in the main area. */
+  graphActive: boolean;
+  onToggleGraph: () => void;
 }
 
 /** Far-left icon rail: quick actions + sidebar view switches. */
@@ -15,6 +27,9 @@ export function Rail({
   sidebarVisible,
   onActivateView,
   onOpenSettings,
+  onQuickOpen,
+  graphActive,
+  onToggleGraph,
 }: RailProps) {
   const base =
     "flex h-9 w-9 items-center justify-center rounded-md transition-colors active:scale-95";
@@ -27,6 +42,15 @@ export function Rail({
       aria-label="Activity bar"
       className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-2"
     >
+      <button
+        type="button"
+        onClick={onQuickOpen}
+        title="Quick open / commands (Ctrl+P)"
+        className={ghost}
+      >
+        <Search size={18} aria-hidden />
+        <span className="sr-only">Quick open</span>
+      </button>
       <button
         type="button"
         onClick={() => onActivateView("files")}
@@ -60,6 +84,16 @@ export function Rail({
       >
         <GitBranch size={18} aria-hidden />
         <span className="sr-only">Source control</span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggleGraph}
+        title="Graph view"
+        aria-pressed={graphActive}
+        className={graphActive ? `${base} bg-accent/10 text-accent` : ghost}
+      >
+        <Network size={18} aria-hidden />
+        <span className="sr-only">Graph view</span>
       </button>
 
       <button

@@ -7,9 +7,10 @@ AI assist is layered on top — nothing more. Branchnote is built with
 trying to replace Obsidian or Notion.
 
 > **Status:** early development. The editing experience (filesystem, tabs, tree, preview,
-> theming, window chrome) **and the full git workflow** — status, staging, commit,
-> pull/push with ahead/behind, GitHub sign-in and SSH — are implemented and usable.
-> **AI actions** are on the roadmap below and not wired up yet.
+> theming, window chrome, find/replace, quick-open, wikilinks, focus mode) **and the
+> full git workflow** — status, staging, commit, pull/push with ahead/behind, GitHub
+> sign-in and SSH — are implemented and usable. **AI actions** are on the roadmap below
+> and not wired up yet.
 
 ---
 
@@ -38,7 +39,18 @@ trying to replace Obsidian or Notion.
 - 💾 **Auto-save** — edits are flushed to disk automatically (debounced) and on every tab
   switch/close; `Ctrl/Cmd+S` forces an immediate save. No "unsaved changes" dialogs.
 - ✍️ **Markdown editor** — [CodeMirror 6](https://codemirror.dev/) with markdown syntax
-  highlighting, line numbers and soft-wrap.
+  highlighting, line numbers, soft-wrap, and **find/replace** (`Ctrl/Cmd+F`).
+- ⚡ **Command palette** — `Ctrl/Cmd+P` opens a palette of **quick actions** (new file
+  / folder, toggle preview / focus mode / theme, graph, git pull / push, settings,
+  change vault) over a **file search**; `Enter` runs/opens (`Ctrl/Cmd+Enter` opens a
+  file in a new tab). Also reachable from the left rail.
+- 🕸️ **Graph view** — a force-directed graph of your vault: notes are nodes, `[[links]]`
+  are edges; pan, zoom, and click a node to open it.
+- 🔗 **Wikilinks** — `[[Note]]` (and `[[Note|alias]]`) link between notes; the editor
+  autocompletes names after `[[`, and clicking a link in the preview opens the note —
+  or creates it if it doesn't exist yet.
+- 🎯 **Focus mode** — `Ctrl/Cmd+Shift+F` hides the sidebar and preview to centre the
+  editor.
 - 👁️ **Live preview** — sanitized HTML preview (GitHub-flavored markdown: headings, lists,
   tables, task lists, code, links, images), toggleable.
 - ⭐ **Favorites** — star files/folders per vault, with a favorites-only view and a
@@ -67,8 +79,6 @@ trying to replace Obsidian or Notion.
 
 - 🤖 **AI actions** (BYOK) — summarize / rewrite / generate title / generate tags, OpenAI &
   Anthropic, on the current note only.
-- ⌨️ **Editor power-ups** — quick-open / command palette, in-note find/replace,
-  `[[wikilinks]]`, focus mode.
 
 ## Tech stack
 
@@ -127,11 +137,11 @@ npm run tauri build    # produce a platform installer/binary
 branchnote/
 ├─ src/                     # React + TypeScript frontend
 │  ├─ App.tsx               # app shell + state orchestration (tabs, vault, theme, git)
-│  ├─ components/           # TitleBar, Rail, Sidebar, TabBar, EditorPane, NoteTitle,
-│  │                        # PreviewPane, StartView, StatusBar, GitPanel, TemplatePicker,
-│  │                        # Settings, Onboarding, ConfirmDialog
-│  └─ lib/                  # workspace + git (Tauri IPC), tree, gitTree, templates,
-│                           # format, theme, editorTheme, ui
+│  ├─ components/           # TitleBar, Rail, Sidebar, TabBar, EditorPane, PreviewPane,
+│  │                        # StartView, StatusBar, GitPanel, TemplatePicker, QuickOpen,
+│  │                        # GraphView, Settings, Onboarding, ConfirmDialog
+│  └─ lib/                  # workspace + git (Tauri IPC), tree, gitTree, graph,
+│                           # templates, wikilinks, menuNav, format, theme, editorTheme, ui
 └─ src-tauri/               # Rust core (Tauri)
    ├─ src/fs.rs             # filesystem commands (list/read/save/create/rename/delete/move)
    ├─ src/git.rs            # git via libgit2 (status/stage/commit/pull/push, GitHub sign-in)
@@ -150,6 +160,9 @@ Rust layer.
 | Shortcut | Action |
 |---------|--------|
 | `Ctrl` / `Cmd` + `S` | Save the active note immediately |
+| `Ctrl` / `Cmd` + `P` | Quick-open a file (`Ctrl`/`Cmd`+`Enter` opens in a new tab) |
+| `Ctrl` / `Cmd` + `F` | Find / replace in the editor |
+| `Ctrl` / `Cmd` + `Shift` + `F` | Toggle focus mode (hide sidebar + preview) |
 | `Ctrl` / `Cmd` + `Enter` | Commit the staged changes (in the commit box) |
 
 ## Data & privacy
@@ -166,9 +179,9 @@ Rust layer.
 - [x] Git integration: init/detect repo, status, staging area, commit, pull/push (PAT + SSH
       + GitHub sign-in), ahead/behind, remote + identity in Settings, token in OS keychain
 - [x] Markdown templates: built-ins + `templates/` folder, `{{placeholder}}` substitution
+- [x] Editor power-ups: quick-open (`Ctrl/Cmd+P`), in-note find/replace (`Ctrl/Cmd+F`),
+      `[[wikilinks]]` (autocomplete + click-to-open/create), focus mode
 - [ ] BYOK AI actions: summarize, rewrite, generate title, generate tags (OpenAI + Anthropic)
-- [ ] Editor power-ups: quick-open / command palette, in-note find/replace, `[[wikilinks]]`,
-      focus mode
 - [ ] Settings: AI provider + API keys (stored locally, reusing the keychain pattern)
 
 Explicit non-goals: realtime collaboration, cloud backend, accounts, plugin ecosystem,

@@ -16,6 +16,7 @@ import {
 import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "../lib/tree";
 import { formatDate } from "../lib/format";
+import { focusFirstItem, menuKeyDown } from "../lib/menuNav";
 import { textInput } from "../lib/ui";
 import { TemplatePicker } from "./TemplatePicker";
 import type { SidebarView } from "./Rail";
@@ -675,7 +676,10 @@ export function Sidebar({
 
     return (
       <ul
+        ref={focusFirstItem}
         role="menu"
+        aria-label="Context menu"
+        onKeyDown={menuKeyDown}
         style={{ left, top, minWidth: MENU_W }}
         className="fixed z-50 overflow-hidden rounded-lg border border-line bg-card py-1 text-sm shadow-popover"
       >
