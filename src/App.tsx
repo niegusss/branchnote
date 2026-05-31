@@ -26,6 +26,7 @@ import {
   Settings as SettingsIcon,
   Star,
   SunMoon,
+  Terminal,
   Upload,
 } from "lucide-react";
 import {
@@ -37,6 +38,7 @@ import {
   listEntries,
   moveEntry,
   onWorkspaceChanged,
+  openTerminal,
   pickFolder,
   readFile,
   renameEntry,
@@ -729,6 +731,18 @@ function App() {
     }
   }
 
+  /** Open the OS terminal in `dir` (default: the vault root) so an external AI
+   *  agent can run there. */
+  async function onOpenTerminal(dir?: string) {
+    const target = dir ?? vaultPath;
+    if (!target) return;
+    try {
+      await openTerminal(target);
+    } catch (e) {
+      setError(formatErr(e));
+    }
+  }
+
   /** Open a file in the active tab (replacing its content). */
   async function selectFile(path: string) {
     setGraphOpen(false);
@@ -963,6 +977,7 @@ function App() {
         { id: "favorites", label: "Show favorites", keywords: "starred", icon: ic(<Star size={14} />), run: () => onActivateView("favorites") },
         { id: "settings", label: "Open Settings", keywords: "preferences config", icon: ic(<SettingsIcon size={14} />), run: () => setSettingsOpen(true) },
         { id: "change-vault", label: "Change vault…", keywords: "open folder workspace", icon: ic(<FolderOpen size={14} />), run: () => void changeVault() },
+        { id: "terminal", label: "Open terminal in vault", keywords: "shell console ai agent claude aider", icon: ic(<Terminal size={14} />), run: () => void onOpenTerminal() },
       ]
     : [];
 
@@ -1058,6 +1073,7 @@ function App() {
                   onRename={handleRename}
                   onDelete={handleDelete}
                   onMove={handleMove}
+                  onOpenTerminal={onOpenTerminal}
                 />
               ))}
 
@@ -1137,6 +1153,7 @@ function App() {
           onThemeChange={changeTheme}
           vaultPath={vaultPath}
           onChangeVault={changeVault}
+          onOpenTerminal={onOpenTerminal}
           onClose={() => setSettingsOpen(false)}
         />
       )}

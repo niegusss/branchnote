@@ -1,16 +1,16 @@
 # Branchnote
 
 A minimal, **local-first**, desktop markdown workspace. Your notes are plain `.md`
-files on your disk, **git** is the visible sync layer, and a thin **bring-your-own-key**
-AI assist is layered on top — nothing more. Branchnote is built with
+files on your disk and **git** is the visible sync layer — nothing more. Because the
+notes are just files, you can point **any external AI agent** (Claude Code, aider, …)
+straight at the folder; Branchnote doesn't bundle its own AI. It's built with
 [Tauri](https://tauri.app/), React and TypeScript, and is intentionally small: it is not
 trying to replace Obsidian or Notion.
 
 > **Status:** early development. The editing experience (filesystem, tabs, tree, preview,
-> theming, window chrome, find/replace, quick-open, wikilinks, focus mode) **and the
-> full git workflow** — status, staging, commit, pull/push with ahead/behind, GitHub
-> sign-in and SSH — are implemented and usable. **AI actions** are on the roadmap below
-> and not wired up yet.
+> theming, window chrome, find/replace, command palette, wikilinks, graph view, focus
+> mode) **and the full git workflow** — status, staging, commit, pull/push with
+> ahead/behind, GitHub sign-in and SSH — are implemented and usable.
 
 ---
 
@@ -22,8 +22,9 @@ trying to replace Obsidian or Notion.
   honestly instead of pretending to be magic realtime sync.
 - **Explicit over magic** — you always know where files live and when things are written.
 - **Lightweight** — a small dependency surface and a Rust core; fast start, low memory.
-- **You own your keys** — AI is optional, uses your own provider API key, and only ever
-  operates on the note in front of you.
+- **Bring your own agent** — no built-in AI. Your notes are plain files, so the most
+  capable assistant is whatever you run in a terminal in the vault (Claude Code, aider,
+  …); Branchnote gives you a one-click way to open one there.
 
 ## Features
 
@@ -74,11 +75,27 @@ trying to replace Obsidian or Notion.
   (via `git2`/`libgit2`, no CLI shelling). **Sign in with GitHub** (OAuth device flow — no
   token copy-pasting) *or* SSH; remote URL + identity live in git config, and the access
   token is stored in your **OS keychain**.
+- 🤖 **Open terminal in vault** — one click (Settings → Vault, or the command palette)
+  opens your OS terminal in the vault folder, ready to run an AI agent on your notes
+  (see [AI / external agents](#ai--external-agents)).
 
-**Planned** (see [Roadmap](#roadmap))
+## AI / external agents
 
-- 🤖 **AI actions** (BYOK) — summarize / rewrite / generate title / generate tags, OpenAI &
-  Anthropic, on the current note only.
+Branchnote has **no built-in AI**, on purpose. Your vault is just a folder of `.md`
+files, so the best assistant is a real agent running against those files — far more
+capable (multi-file, repo- and git-aware) than any in-app "summarize this note" button
+would be, and you keep full control of your own keys.
+
+Use **Open terminal** (Settings → Vault, or `Ctrl/Cmd+P` → *Open terminal in vault*),
+then run your tool of choice in that folder, e.g.:
+
+```bash
+claude        # Claude Code
+aider         # aider
+```
+
+Edits the agent makes land as ordinary file changes — they show up live in the editor
+and in the Git panel, where you review, stage, and commit them like any other change.
 
 ## Tech stack
 
@@ -160,7 +177,7 @@ Rust layer.
 | Shortcut | Action |
 |---------|--------|
 | `Ctrl` / `Cmd` + `S` | Save the active note immediately |
-| `Ctrl` / `Cmd` + `P` | Quick-open a file (`Ctrl`/`Cmd`+`Enter` opens in a new tab) |
+| `Ctrl` / `Cmd` + `P` | Command palette — actions + file search (`Ctrl`/`Cmd`+`Enter` opens a file in a new tab) |
 | `Ctrl` / `Cmd` + `F` | Find / replace in the editor |
 | `Ctrl` / `Cmd` + `Shift` + `F` | Toggle focus mode (hide sidebar + preview) |
 | `Ctrl` / `Cmd` + `Enter` | Commit the staged changes (in the commit box) |
@@ -171,21 +188,23 @@ Rust layer.
   elsewhere.
 - UI preferences (vault path, theme, sidebar/preview state, favorites) are stored in the
   app's local `localStorage`.
-- No telemetry, no accounts, no network calls (until you opt into git sync or AI with your
-  own credentials).
+- No telemetry, no accounts, no built-in AI, and no network calls (until you opt into git
+  sync with your own credentials). Any AI you use runs in your own terminal, under your
+  own keys, outside the app.
 
 ## Roadmap
 
 - [x] Git integration: init/detect repo, status, staging area, commit, pull/push (PAT + SSH
       + GitHub sign-in), ahead/behind, remote + identity in Settings, token in OS keychain
 - [x] Markdown templates: built-ins + `templates/` folder, `{{placeholder}}` substitution
-- [x] Editor power-ups: quick-open (`Ctrl/Cmd+P`), in-note find/replace (`Ctrl/Cmd+F`),
-      `[[wikilinks]]` (autocomplete + click-to-open/create), focus mode
-- [ ] BYOK AI actions: summarize, rewrite, generate title, generate tags (OpenAI + Anthropic)
-- [ ] Settings: AI provider + API keys (stored locally, reusing the keychain pattern)
+- [x] Editor power-ups: command palette (`Ctrl/Cmd+P`), in-note find/replace (`Ctrl/Cmd+F`),
+      `[[wikilinks]]` (autocomplete + click-to-open/create), graph view, focus mode
+- [x] AI strategy: bring your own external agent — *Open terminal in vault* instead of a
+      built-in BYOK integration
 
-Explicit non-goals: realtime collaboration, cloud backend, accounts, plugin ecosystem,
-vector/semantic search, AI agents, mobile or browser versions, WYSIWYG editing.
+Explicit non-goals: built-in / bundled AI (use an external agent on the files instead),
+realtime collaboration, cloud backend, accounts, plugin ecosystem,
+vector/semantic search, mobile or browser versions, WYSIWYG editing.
 
 ## Contributing
 

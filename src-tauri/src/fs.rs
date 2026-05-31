@@ -329,6 +329,57 @@ pub fn move_entry(src: String, dest_dir: String) -> Result<String, String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Open the OS terminal with its working directory set to `path`, so the user
+/// can run an external agent (e.g. `claude`, `aider`) directly on the vault
+/// files. Best-effort per platform — Branchnote keeps notes as plain files, so
+/// the most capable AI is whatever the user runs in that terminal.
+#[tauri::command]
+pub fn open_terminal(path: String) -> Result<(), String> {
+    use std::process::Command;
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("Not a folder: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Prefer Windows Terminal if present; fall back to a cmd window.
+        if Command::new("wt").arg("-d").arg(&dir).spawn().is_ok() {
+            return Ok(());
+        }
+        return Command::new("cmd")
+            .args(["/C", "start", "cmd"])
+            .current_dir(&dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(&dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+            if Command::new(term).current_dir(&dir).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        return Err("No terminal emulator found".into());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Opening a terminal isn't supported on this platform".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

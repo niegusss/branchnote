@@ -11,6 +11,7 @@ import {
   Pencil,
   SquarePlus,
   Star,
+  Terminal,
   Trash2,
 } from "lucide-react";
 import type { FileEntry } from "../types";
@@ -49,6 +50,8 @@ interface SidebarProps {
   onRename: (path: string, newName: string) => void;
   onDelete: (path: string) => void;
   onMove: (src: string, destDir: string) => void;
+  /** Open the OS terminal in `dir` (for running an external AI agent there). */
+  onOpenTerminal: (dir: string) => void;
 }
 
 /** Constant left padding inside every row; nesting depth comes from <ul> margins. */
@@ -85,6 +88,7 @@ export function Sidebar({
   onRename,
   onDelete,
   onMove,
+  onOpenTerminal,
 }: SidebarProps) {
   const showFavorites = view === "favorites";
   const tree = useMemo(() => buildTree(files), [files]);
@@ -602,6 +606,12 @@ export function Sidebar({
           label: "New folder",
           action: () => startCreate(root, "folder"),
         });
+        items.push({
+          key: "terminal",
+          icon: <Terminal size={14} aria-hidden />,
+          label: "Open terminal",
+          action: () => onOpenTerminal(root),
+        });
       }
       return <ContextMenuList items={items} />;
     }
@@ -642,6 +652,12 @@ export function Sidebar({
         icon: <FolderPlus size={14} aria-hidden />,
         label: "New folder",
         action: () => startCreate(entry.path, "folder"),
+      });
+      items.push({
+        key: "terminal",
+        icon: <Terminal size={14} aria-hidden />,
+        label: "Open terminal",
+        action: () => onOpenTerminal(entry.path),
       });
     }
     items.push({

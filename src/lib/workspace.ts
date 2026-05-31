@@ -25,6 +25,10 @@ export const listEntries = (root: string) =>
 export const scanLinks = (root: string) =>
   invoke<NoteLinks[]>("scan_links", { root });
 
+/** Open the OS terminal in `path` (to run an external AI agent on the vault). */
+export const openTerminal = (path: string) =>
+  invoke<void>("open_terminal", { path });
+
 export const readFile = (path: string) => invoke<string>("read_file", { path });
 
 export const saveFile = (path: string, content: string) =>

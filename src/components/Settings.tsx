@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Monitor, Moon, Sun, X } from "lucide-react";
+import { Monitor, Moon, Sun, Terminal, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Theme } from "../lib/theme";
 import type { DeviceCodeInfo } from "../types";
@@ -22,6 +22,8 @@ interface SettingsProps {
   onThemeChange: (theme: Theme) => void;
   vaultPath: string | null;
   onChangeVault: () => void;
+  /** Open the OS terminal in the vault (to run an external AI agent there). */
+  onOpenTerminal: () => void;
   onClose: () => void;
 }
 
@@ -317,6 +319,7 @@ export function Settings({
   onThemeChange,
   vaultPath,
   onChangeVault,
+  onOpenTerminal,
   onClose,
 }: SettingsProps) {
   useEffect(() => {
@@ -387,9 +390,26 @@ export function Settings({
             <p className="mb-2 truncate text-sm text-muted" title={vaultPath ?? ""}>
               {vaultPath ?? "No vault open"}
             </p>
-            <button type="button" onClick={onChangeVault} className={btnSecondary}>
-              Change vault…
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={onChangeVault} className={btnSecondary}>
+                Change vault…
+              </button>
+              <button
+                type="button"
+                onClick={onOpenTerminal}
+                disabled={!vaultPath}
+                className={btnSecondary}
+                title="Open a terminal here to run an AI agent (e.g. claude, aider) on your notes"
+              >
+                <Terminal size={15} aria-hidden />
+                Open terminal
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-faint">
+              Notes are plain files — run an external AI agent (e.g.{" "}
+              <span className="text-muted">claude</span>,{" "}
+              <span className="text-muted">aider</span>) in this folder to edit them.
+            </p>
           </section>
 
           {vaultPath && <GitSettings vaultPath={vaultPath} />}

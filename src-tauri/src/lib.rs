@@ -20,6 +20,7 @@ pub fn run() {
             fs::delete_entry,
             fs::move_entry,
             fs::scan_links,
+            fs::open_terminal,
             git::git_is_repo,
             git::git_init,
             git::git_status,
