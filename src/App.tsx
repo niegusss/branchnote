@@ -53,6 +53,7 @@ import {
 } from "./lib/workspace";
 import { buildGraph, type GraphEdge, type GraphNode } from "./lib/graph";
 import { todayISO } from "./lib/specs";
+import { toggleTask } from "./lib/tasks";
 import {
   gitCommit,
   gitGetRemote,
@@ -660,6 +661,13 @@ function App() {
     patchTab(active.id, { draft: value });
   }
 
+  /** Toggle the index-th task checkbox in the active note (clicked in preview).
+   *  Edits the draft; the autosave effect persists it and spec progress refreshes. */
+  function onToggleTask(index: number) {
+    const next = toggleTask(active.draft, index);
+    if (next !== active.draft) patchTab(active.id, { draft: next });
+  }
+
   function newTab() {
     const tab = emptyTab();
     setTabs((prev) => [...prev, tab]);
@@ -1184,6 +1192,7 @@ function App() {
                       content={active.draft}
                       wikiTargets={wikiTargets}
                       onOpenWikilink={onOpenWikilink}
+                      onToggleTask={onToggleTask}
                     />
                   )}
                 </main>
