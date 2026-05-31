@@ -4,6 +4,7 @@ import type {
   DeviceCodeInfo,
   GitStatus,
   Identity,
+  SpecCommit,
   WorkingTree,
 } from "../types";
 
@@ -32,6 +33,10 @@ export const gitWorktree = (path: string) =>
 /** Most recent commits, newest first, up to `limit`. */
 export const gitLog = (path: string, limit: number) =>
   invoke<CommitInfo[]>("git_log", { path, limit });
+
+/** Commits referencing a spec (for the Traceability view), newest first. */
+export const gitSpecCommits = (path: string, limit: number) =>
+  invoke<SpecCommit[]>("git_spec_commits", { path, limit });
 
 /** Stage a single path (add / modify / delete). */
 export const gitStage = (path: string, relPath: string) =>

@@ -60,6 +60,22 @@ export interface HandoffResult {
   content: string;
 }
 
+/** A commit that references a spec (Traceability view). Mirrors Rust `SpecCommit`. */
+export interface SpecCommit {
+  /** Full commit hash. */
+  id: string;
+  /** Abbreviated hash (7 chars). */
+  shortId: string;
+  summary: string;
+  author: string;
+  /** Author time, seconds since the Unix epoch. */
+  time: number;
+  /** Referenced spec id, normalized e.g. "SPEC-001". */
+  specId: string;
+  /** Referenced task ids, normalized e.g. ["T001", "T003"]. */
+  tasks: string[];
+}
+
 /** Git working-tree summary surfaced in the status bar. Mirrors Rust `GitStatus`. */
 export interface GitStatus {
   branch: string;

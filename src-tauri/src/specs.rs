@@ -385,6 +385,8 @@ fn compose_handoff(id: &str, title: &str, dir_rel_path: &str, spec: &str, plan: 
          You are an AI coding agent working in this repository. Implement the\n\
          specification below. Stay within scope, keep changes minimal and reviewable,\n\
          and tick off items in tasks.md (`- [ ]` -> `- [x]`) as you complete them.\n\
+         When you commit, start the message with the spec id and task id(s), e.g.\n\
+         `{id} T003: ...`, so Branchnote can trace each commit back to this spec.\n\
          \n\
          Spec folder: {dir_rel_path}\n\
          \n\

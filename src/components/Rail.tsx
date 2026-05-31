@@ -6,6 +6,7 @@ import {
   Search,
   Settings as SettingsIcon,
   Star,
+  Waypoints,
 } from "lucide-react";
 
 export type SidebarView = "files" | "favorites" | "git" | "specs";
@@ -20,6 +21,9 @@ interface RailProps {
   /** Whether the graph view is showing in the main area. */
   graphActive: boolean;
   onToggleGraph: () => void;
+  /** Whether the traceability view is showing in the main area. */
+  traceActive: boolean;
+  onToggleTrace: () => void;
 }
 
 /** Far-left icon rail: quick actions + sidebar view switches. */
@@ -31,6 +35,8 @@ export function Rail({
   onQuickOpen,
   graphActive,
   onToggleGraph,
+  traceActive,
+  onToggleTrace,
 }: RailProps) {
   const base =
     "flex h-9 w-9 items-center justify-center rounded-md transition-colors active:scale-95";
@@ -105,6 +111,16 @@ export function Rail({
       >
         <Network size={18} aria-hidden />
         <span className="sr-only">Graph view</span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggleTrace}
+        title="Traceability"
+        aria-pressed={traceActive}
+        className={traceActive ? `${base} bg-accent/10 text-accent` : ghost}
+      >
+        <Waypoints size={18} aria-hidden />
+        <span className="sr-only">Traceability</span>
       </button>
 
       <button

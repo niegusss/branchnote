@@ -32,6 +32,7 @@ pub fn run() {
             git::git_status,
             git::git_worktree,
             git::git_log,
+            git::git_spec_commits,
             git::git_stage,
             git::git_unstage,
             git::git_stage_all,

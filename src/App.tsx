@@ -15,6 +15,7 @@ import { Onboarding } from "./components/Onboarding";
 import { QuickOpen, type Command } from "./components/QuickOpen";
 import { GraphView } from "./components/GraphView";
 import { SpecsPanel } from "./components/SpecsPanel";
+import { TraceabilityView } from "./components/TraceabilityView";
 import {
   ClipboardList,
   Download,
@@ -30,6 +31,7 @@ import {
   SunMoon,
   Terminal,
   Upload,
+  Waypoints,
 } from "lucide-react";
 import {
   createFile,
@@ -64,6 +66,7 @@ import {
   gitLog,
   gitPull,
   gitPush,
+  gitSpecCommits,
   gitStage,
   gitStageAll,
   gitStatus,
@@ -81,7 +84,7 @@ import {
   watchSystem,
   type Theme,
 } from "./lib/theme";
-import type { CommitInfo, FileEntry, GitFileStatus, GitStatus, Spec, SpecStatus } from "./types";
+import type { CommitInfo, FileEntry, GitFileStatus, GitStatus, Spec, SpecCommit, SpecStatus } from "./types";
 
 const PREVIEW_KEY = "branchnote.previewVisible";
 /** How many commits to show in the Git panel's history list. */
@@ -208,6 +211,9 @@ function App() {
   });
   /** Specs are a left-panel view (SDD: specs are the primary navigation unit). */
   const [specsData, setSpecsData] = useState<Spec[]>([]);
+  /** Traceability view (spec→task→commit) occupies the main area when open. */
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [traceData, setTraceData] = useState<SpecCommit[]>([]);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     const v = localStorage.getItem(PREVIEW_KEY);
     return v === null ? true : v === "true";
@@ -531,6 +537,29 @@ function App() {
     };
   }, [sidebarView, sidebarVisible, vaultPath, files]);
 
+  // Load traceability data when the view is open: specs + commits that reference
+  // a spec (newest first). Refreshes on file/git changes (watcher fires on .git/).
+  useEffect(() => {
+    if (!traceOpen || !vaultPath) return;
+    let cancelled = false;
+    void Promise.all([
+      scanSpecs(vaultPath),
+      gitRepo ? gitSpecCommits(vaultPath, 500) : Promise.resolve([] as SpecCommit[]),
+    ])
+      .then(([specs, commits]) => {
+        if (!cancelled) {
+          setSpecsData(specs);
+          setTraceData(commits);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTraceData([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [traceOpen, vaultPath, gitRepo, files]);
+
   function patchTab(id: string, patch: Partial<Tab>) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
@@ -717,6 +746,7 @@ function App() {
       setActiveId(fresh.id);
       // Specs-first: if this vault already has specs, land on the Specs panel.
       setGraphOpen(false);
+      setTraceOpen(false);
       if (list.some((f) => f.isDir && f.relPath === "specs")) {
         setSidebarView("specs");
         setSidebarVisible(true);
@@ -830,6 +860,7 @@ function App() {
   /** Open a file in the active tab (replacing its content). */
   async function selectFile(path: string) {
     setGraphOpen(false);
+    setTraceOpen(false);
     if (active.path === path) return;
     await run(async () => {
       await flushTab(active);
@@ -841,6 +872,7 @@ function App() {
   /** Open a file in a brand-new tab. */
   async function openInNewTab(path: string) {
     setGraphOpen(false);
+    setTraceOpen(false);
     await run(async () => {
       const content = await readFile(path);
       const tab: Tab = { id: newId(), path, draft: content, saved: content };
@@ -1054,7 +1086,8 @@ function App() {
         { id: "toggle-preview", label: previewVisible ? "Hide preview" : "Show preview", keywords: "markdown render", icon: ic(<PanelRight size={14} />), run: () => setPreviewVisible((v) => !v) },
         { id: "focus-mode", label: focusMode ? "Exit focus mode" : "Focus mode", hint: "Ctrl+Shift+F", keywords: "distraction free", icon: ic(<Maximize2 size={14} />), run: () => setFocusMode((v) => !v) },
         { id: "specs", label: "Open specs", keywords: "spec sdd requirements plan tasks", icon: ic(<ClipboardList size={14} />), run: () => onActivateView("specs") },
-        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => setGraphOpen(true) },
+        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => { setTraceOpen(false); setGraphOpen(true); } },
+        { id: "trace", label: "Open traceability", keywords: "commits spec task verify trace", icon: ic(<Waypoints size={14} />), run: () => { setGraphOpen(false); setTraceOpen(true); } },
         { id: "theme", label: `Theme: switch to ${nextTheme}`, keywords: "dark light system appearance", icon: ic(<SunMoon size={14} />), run: () => changeTheme(nextTheme) },
         { id: "git", label: "Open Source control", keywords: "git version", icon: ic(<GitBranch size={14} />), run: () => onActivateView("git") },
         { id: "git-pull", label: "Git: Pull", keywords: "fetch sync", icon: ic(<Download size={14} />), run: () => void onGitPull() },
@@ -1107,7 +1140,19 @@ function App() {
               onOpenSettings={() => setSettingsOpen(true)}
               onQuickOpen={() => setQuickOpen(true)}
               graphActive={graphOpen}
-              onToggleGraph={() => setGraphOpen((v) => !v)}
+              onToggleGraph={() =>
+                setGraphOpen((v) => {
+                  if (!v) setTraceOpen(false);
+                  return !v;
+                })
+              }
+              traceActive={traceOpen}
+              onToggleTrace={() =>
+                setTraceOpen((v) => {
+                  if (!v) setGraphOpen(false);
+                  return !v;
+                })
+              }
             />
 
             {sidebarVisible &&
@@ -1184,7 +1229,14 @@ function App() {
                 onToggleFocusMode={() => setFocusMode((v) => !v)}
               />
 
-              {graphOpen ? (
+              {traceOpen ? (
+                <TraceabilityView
+                  specs={specsData}
+                  commits={traceData}
+                  onOpenSpec={(specPath) => void selectFile(specPath)}
+                  onClose={() => setTraceOpen(false)}
+                />
+              ) : graphOpen ? (
                 <GraphView
                   nodes={graphData.nodes}
                   edges={graphData.edges}
