@@ -1,5 +1,6 @@
 mod fs;
 mod git;
+mod specs;
 mod watcher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +22,9 @@ pub fn run() {
             fs::move_entry,
             fs::scan_links,
             fs::open_terminal,
+            specs::create_spec,
+            specs::scan_specs,
+            specs::set_status,
             git::git_is_repo,
             git::git_init,
             git::git_status,

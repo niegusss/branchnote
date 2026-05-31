@@ -27,6 +27,31 @@ export interface NoteLinks {
   targets: string[];
 }
 
+/** A spec's lifecycle status — a human declaration, independent of progress. */
+export type SpecStatus = "draft" | "active" | "done";
+
+/** Done/total task counts derived from a spec's `tasks.md`. Mirrors Rust `SpecProgress`. */
+export interface SpecProgress {
+  done: number;
+  total: number;
+}
+
+/** A specification as a first-class object. Mirrors Rust `Spec`. */
+export interface Spec {
+  /** Stable id, e.g. "SPEC-001". */
+  id: string;
+  title: string;
+  /** Human declaration: independent of `progress` (no enforced consistency). */
+  status: SpecStatus;
+  /** Template the spec was scaffolded from, e.g. "spec-kit". */
+  template: string;
+  /** Folder path relative to the vault root, forward-slashed. */
+  dirRelPath: string;
+  /** Absolute path to `spec.md` (open this in the editor). */
+  specPath: string;
+  progress: SpecProgress;
+}
+
 /** Git working-tree summary surfaced in the status bar. Mirrors Rust `GitStatus`. */
 export interface GitStatus {
   branch: string;

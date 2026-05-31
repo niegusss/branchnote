@@ -14,7 +14,9 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
 import { QuickOpen, type Command } from "./components/QuickOpen";
 import { GraphView } from "./components/GraphView";
+import { SpecsView } from "./components/SpecsView";
 import {
+  ClipboardList,
   Download,
   FilePlus,
   FolderOpen,
@@ -37,6 +39,7 @@ import {
   deleteEntry,
   listEntries,
   moveEntry,
+  createSpec,
   onWorkspaceChanged,
   openTerminal,
   pickFolder,
@@ -44,9 +47,12 @@ import {
   renameEntry,
   saveFile,
   scanLinks,
+  scanSpecs,
+  setSpecStatus,
   watchFolder,
 } from "./lib/workspace";
 import { buildGraph, type GraphEdge, type GraphNode } from "./lib/graph";
+import { todayISO } from "./lib/specs";
 import {
   gitCommit,
   gitGetRemote,
@@ -72,7 +78,7 @@ import {
   watchSystem,
   type Theme,
 } from "./lib/theme";
-import type { CommitInfo, FileEntry, GitFileStatus, GitStatus } from "./types";
+import type { CommitInfo, FileEntry, GitFileStatus, GitStatus, Spec, SpecStatus } from "./types";
 
 const PREVIEW_KEY = "branchnote.previewVisible";
 /** How many commits to show in the Git panel's history list. */
@@ -197,6 +203,9 @@ function App() {
     nodes: [],
     edges: [],
   });
+  /** Specs view occupies the main area when open (SDD: specs are first-class). */
+  const [specsOpen, setSpecsOpen] = useState(false);
+  const [specsData, setSpecsData] = useState<Spec[]>([]);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     const v = localStorage.getItem(PREVIEW_KEY);
     return v === null ? true : v === "true";
@@ -503,6 +512,23 @@ function App() {
     };
   }, [graphOpen, vaultPath, files]);
 
+  // Project the specs/ folder when the Specs view is open (refresh as the disk
+  // changes). The filesystem is the source of truth — this is a pure re-scan.
+  useEffect(() => {
+    if (!specsOpen || !vaultPath) return;
+    let cancelled = false;
+    void scanSpecs(vaultPath)
+      .then((specs) => {
+        if (!cancelled) setSpecsData(specs);
+      })
+      .catch(() => {
+        if (!cancelled) setSpecsData([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [specsOpen, vaultPath, files]);
+
   function patchTab(id: string, patch: Partial<Tab>) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
@@ -521,6 +547,9 @@ function App() {
     async (tab: Tab) => {
       const v = live.current.vaultPath;
       if (!v || !tab.path) return;
+      // Spec files (spec.md / plan.md / tasks.md under specs/) have structural
+      // names — never auto-rename them from their H1.
+      if (toRel(tab.path).startsWith("specs/")) return;
       const name = sanitizeFileName(titleFromDoc(tab.draft));
       if (!name || name === stripMd(basename(tab.path))) return;
       const oldPath = tab.path;
@@ -677,6 +706,9 @@ function App() {
       const fresh = emptyTab();
       setTabs([fresh]);
       setActiveId(fresh.id);
+      // Specs-first: if this vault already has specs, land on the Specs view.
+      setGraphOpen(false);
+      setSpecsOpen(list.some((f) => f.isDir && f.relPath === "specs"));
     } catch (e) {
       setError(formatErr(e));
       setVaultPath(null);
@@ -743,9 +775,36 @@ function App() {
     }
   }
 
+  /** Create a new spec folder from a title, refresh the list, and open its
+   *  `spec.md` in the editor. */
+  async function onCreateSpec(title: string) {
+    if (!vaultPath) return;
+    await run(async () => {
+      await flushTab(active);
+      const spec = await createSpec(vaultPath, title, todayISO());
+      setFiles(await listEntries(vaultPath));
+      setSpecsData(await scanSpecs(vaultPath));
+      const content = await readFile(spec.specPath);
+      patchTab(active.id, { path: spec.specPath, draft: content, saved: content });
+      setSpecsOpen(false);
+    });
+  }
+
+  /** Set a spec's status (a human declaration), then re-project the list. */
+  async function onSetSpecStatus(spec: Spec, status: SpecStatus) {
+    if (!vaultPath) return;
+    try {
+      await setSpecStatus(spec.specPath, status, todayISO());
+      setSpecsData(await scanSpecs(vaultPath));
+    } catch (e) {
+      setError(formatErr(e));
+    }
+  }
+
   /** Open a file in the active tab (replacing its content). */
   async function selectFile(path: string) {
     setGraphOpen(false);
+    setSpecsOpen(false);
     if (active.path === path) return;
     await run(async () => {
       await flushTab(active);
@@ -757,6 +816,7 @@ function App() {
   /** Open a file in a brand-new tab. */
   async function openInNewTab(path: string) {
     setGraphOpen(false);
+    setSpecsOpen(false);
     await run(async () => {
       const content = await readFile(path);
       const tab: Tab = { id: newId(), path, draft: content, saved: content };
@@ -969,7 +1029,8 @@ function App() {
         { id: "new-folder", label: "New folder", keywords: "create directory", icon: ic(<FolderPlus size={14} />), run: () => void handleCreateFolder(vaultPath, "Untitled folder") },
         { id: "toggle-preview", label: previewVisible ? "Hide preview" : "Show preview", keywords: "markdown render", icon: ic(<PanelRight size={14} />), run: () => setPreviewVisible((v) => !v) },
         { id: "focus-mode", label: focusMode ? "Exit focus mode" : "Focus mode", hint: "Ctrl+Shift+F", keywords: "distraction free", icon: ic(<Maximize2 size={14} />), run: () => setFocusMode((v) => !v) },
-        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => setGraphOpen(true) },
+        { id: "specs", label: "Open specs", keywords: "spec sdd requirements plan tasks", icon: ic(<ClipboardList size={14} />), run: () => { setGraphOpen(false); setSpecsOpen(true); } },
+        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => { setSpecsOpen(false); setGraphOpen(true); } },
         { id: "theme", label: `Theme: switch to ${nextTheme}`, keywords: "dark light system appearance", icon: ic(<SunMoon size={14} />), run: () => changeTheme(nextTheme) },
         { id: "git", label: "Open Source control", keywords: "git version", icon: ic(<GitBranch size={14} />), run: () => onActivateView("git") },
         { id: "git-pull", label: "Git: Pull", keywords: "fetch sync", icon: ic(<Download size={14} />), run: () => void onGitPull() },
@@ -1022,7 +1083,19 @@ function App() {
               onOpenSettings={() => setSettingsOpen(true)}
               onQuickOpen={() => setQuickOpen(true)}
               graphActive={graphOpen}
-              onToggleGraph={() => setGraphOpen((v) => !v)}
+              onToggleGraph={() =>
+                setGraphOpen((v) => {
+                  if (!v) setSpecsOpen(false);
+                  return !v;
+                })
+              }
+              specsActive={specsOpen}
+              onToggleSpecs={() =>
+                setSpecsOpen((v) => {
+                  if (!v) setGraphOpen(false);
+                  return !v;
+                })
+              }
             />
 
             {sidebarVisible &&
@@ -1089,7 +1162,15 @@ function App() {
                 onToggleFocusMode={() => setFocusMode((v) => !v)}
               />
 
-              {graphOpen ? (
+              {specsOpen ? (
+                <SpecsView
+                  specs={specsData}
+                  onOpenSpec={(specPath) => void selectFile(specPath)}
+                  onCreateSpec={(title) => void onCreateSpec(title)}
+                  onSetStatus={(spec, status) => void onSetSpecStatus(spec, status)}
+                  onClose={() => setSpecsOpen(false)}
+                />
+              ) : graphOpen ? (
                 <GraphView
                   nodes={graphData.nodes}
                   edges={graphData.edges}
