@@ -8,7 +8,7 @@ import {
   Star,
 } from "lucide-react";
 
-export type SidebarView = "files" | "favorites" | "git";
+export type SidebarView = "files" | "favorites" | "git" | "specs";
 
 interface RailProps {
   view: SidebarView;
@@ -20,9 +20,6 @@ interface RailProps {
   /** Whether the graph view is showing in the main area. */
   graphActive: boolean;
   onToggleGraph: () => void;
-  /** Whether the specs view is showing in the main area. */
-  specsActive: boolean;
-  onToggleSpecs: () => void;
 }
 
 /** Far-left icon rail: quick actions + sidebar view switches. */
@@ -34,8 +31,6 @@ export function Rail({
   onQuickOpen,
   graphActive,
   onToggleGraph,
-  specsActive,
-  onToggleSpecs,
 }: RailProps) {
   const base =
     "flex h-9 w-9 items-center justify-center rounded-md transition-colors active:scale-95";
@@ -59,10 +54,10 @@ export function Rail({
       </button>
       <button
         type="button"
-        onClick={onToggleSpecs}
+        onClick={() => onActivateView("specs")}
         title="Specs"
-        aria-pressed={specsActive}
-        className={specsActive ? `${base} bg-accent/10 text-accent` : ghost}
+        aria-pressed={view === "specs" && sidebarVisible}
+        className={railBtn(view === "specs")}
       >
         <ClipboardList size={18} aria-hidden />
         <span className="sr-only">Specs</span>
