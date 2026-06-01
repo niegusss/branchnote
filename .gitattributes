@@ -1,0 +1,13 @@
+# Normalize line endings. Store text files with LF in the repository and check
+# them out with the platform-native ending, so Windows/macOS/Linux contributors
+# don't churn diffs over CRLF vs LF.
+* text=auto
+
+# Treat common binary assets as binary (never normalize or diff as text).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.woff2 binary
