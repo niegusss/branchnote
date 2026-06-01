@@ -1,4 +1,14 @@
-import { Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Plus, X } from "lucide-react";
+import {
+  FileText,
+  Maximize2,
+  Minimize2,
+  Network,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Waypoints,
+  X,
+} from "lucide-react";
 
 export interface TabView {
   id: string;
@@ -8,11 +18,17 @@ export interface TabView {
   active: boolean;
 }
 
+/** Which view fills the main content area. Mirrors `App`'s `MainView`. */
+export type MainView = "editor" | "graph" | "trace";
+
 interface TabBarProps {
   tabs: TabView[];
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNewTab: () => void;
+  /** The active main-area view; the segmented switcher reflects/sets it. */
+  mainView: MainView;
+  onSetMainView: (view: MainView) => void;
   previewVisible: boolean;
   onTogglePreview: () => void;
   focusMode: boolean;
@@ -25,6 +41,8 @@ export function TabBar({
   onSelect,
   onClose,
   onNewTab,
+  mainView,
+  onSetMainView,
   previewVisible,
   onTogglePreview,
   focusMode,
@@ -32,6 +50,17 @@ export function TabBar({
 }: TabBarProps) {
   const editorBtn =
     "flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40";
+
+  // Segmented switcher for the main-area view (Editor / Graph / Traceability).
+  const views: { id: MainView; label: string; Icon: typeof FileText }[] = [
+    { id: "editor", label: "Editor", Icon: FileText },
+    { id: "graph", label: "Graph", Icon: Network },
+    { id: "trace", label: "Traceability", Icon: Waypoints },
+  ];
+  const segBtn = (active: boolean) =>
+    `flex items-center justify-center rounded-md p-1.5 transition-colors active:scale-95 ${
+      active ? "bg-accent/10 text-accent" : "text-muted hover:bg-hover hover:text-ink"
+    }`;
   return (
     <div className="flex h-9 shrink-0 items-stretch border-b border-line bg-panel">
       <div className="flex min-w-0 flex-1 overflow-x-auto">
@@ -88,7 +117,27 @@ export function TabBar({
         </button>
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 border-l border-line px-1.5">
+      <div
+        role="group"
+        aria-label="Main view"
+        className="ml-auto flex shrink-0 items-center gap-0.5 border-l border-line px-1.5"
+      >
+        {views.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onSetMainView(id)}
+            title={label}
+            aria-pressed={mainView === id}
+            className={segBtn(mainView === id)}
+          >
+            <Icon size={16} aria-hidden />
+            <span className="sr-only">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5 border-l border-line px-1.5">
         <button
           type="button"
           onClick={onToggleFocusMode}

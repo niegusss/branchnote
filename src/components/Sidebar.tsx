@@ -10,9 +10,9 @@ import {
   LayoutTemplate,
   Pencil,
   SquarePlus,
-  Star,
   Terminal,
   Trash2,
+  FolderSearch,
 } from "lucide-react";
 import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "../lib/tree";
@@ -20,7 +20,6 @@ import { formatDate } from "../lib/format";
 import { focusFirstItem, menuKeyDown } from "../lib/menuNav";
 import { textInput } from "../lib/ui";
 import { TemplatePicker } from "./TemplatePicker";
-import type { SidebarView } from "./Rail";
 
 /** Active-row treatment: a soft accent tint (no left bar). */
 const ROW_ACTIVE = "bg-accent/10 text-accent";
@@ -32,12 +31,6 @@ interface SidebarProps {
   selectedPath: string | null;
   /** Paths with unsaved edits (renders a dot). */
   dirtyPaths: Set<string>;
-  /** Favorited entries, as vault-relative paths. */
-  favorites: Set<string>;
-  /** Which view the panel shows (controlled by the rail). */
-  view: SidebarView;
-  onViewChange: (view: SidebarView) => void;
-  onToggleFavorite: (relPath: string) => void;
   onSelect: (path: string) => void;
   onOpenInNewTab: (path: string) => void;
   /** Create a default-named note in `dir` and open it (named via the title). */
@@ -52,6 +45,8 @@ interface SidebarProps {
   onMove: (src: string, destDir: string) => void;
   /** Open the OS terminal in `dir` (for running an external AI agent there). */
   onOpenTerminal: (dir: string) => void;
+  /** Reveal a file or folder in the OS file manager (Explorer/Finder). */
+  onReveal: (path: string) => void;
 }
 
 /** Constant left padding inside every row; nesting depth comes from <ul> margins. */
@@ -75,10 +70,6 @@ export function Sidebar({
   root,
   selectedPath,
   dirtyPaths,
-  favorites,
-  view,
-  onViewChange,
-  onToggleFavorite,
   onSelect,
   onOpenInNewTab,
   onCreateUntitled,
@@ -89,22 +80,9 @@ export function Sidebar({
   onDelete,
   onMove,
   onOpenTerminal,
+  onReveal,
 }: SidebarProps) {
-  const showFavorites = view === "favorites";
   const tree = useMemo(() => buildTree(files), [files]);
-  const favoriteEntries = useMemo(
-    () =>
-      files
-        .filter((f) => favorites.has(f.relPath))
-        .sort((a, b) =>
-          a.isDir !== b.isDir
-            ? a.isDir
-              ? -1
-              : 1
-            : a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
-        ),
-    [files, favorites],
-  );
 
   // Immediate child counts per folder relPath ("" = root), for hovercards.
   const childCounts = useMemo(() => {
@@ -261,65 +239,6 @@ export function Sidebar({
         placeholder={placeholder}
         className={textInput}
       />
-    );
-  }
-
-  /** Leave the favorites view and reveal a folder in the tree. */
-  function revealFolder(path: string) {
-    onViewChange("files");
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  }
-
-  function renderFavoriteRow(entry: FileEntry) {
-    const active = entry.path === selectedPath;
-    const renaming = renamingPath === entry.path;
-    const parentRel = entry.relPath.includes("/")
-      ? entry.relPath.slice(0, entry.relPath.lastIndexOf("/"))
-      : "";
-    return (
-      <li key={entry.path}>
-        <div
-          onContextMenu={(e) => openMenu(e, entry, false)}
-          onMouseEnter={(e) => scheduleHover(e, entry)}
-          onMouseLeave={cancelHover}
-          className={`group flex items-center rounded-md text-sm transition-colors ${
-            active ? ROW_ACTIVE : "text-muted hover:bg-hover hover:text-ink"
-          }`}
-          style={{ paddingLeft: 8 }}
-        >
-          {renaming ? (
-            <div className="flex-1 py-0.5 pr-1">
-              {nameInput(
-                renameName,
-                setRenameName,
-                () => commitRename(entry.path, entry.name),
-                () => setRenamingPath(null),
-              )}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => (entry.isDir ? revealFolder(entry.path) : onSelect(entry.path))}
-              title={entry.relPath}
-              className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left active:scale-[0.99]"
-            >
-              {entry.isDir ? (
-                <Folder size={14} className="shrink-0 text-faint" aria-hidden />
-              ) : (
-                <FileText size={14} className="shrink-0 text-faint" aria-hidden />
-              )}
-              <span className="truncate">{entry.name}</span>
-              {parentRel && (
-                <span className="truncate text-xs text-faint">{parentRel}</span>
-              )}
-            </button>
-          )}
-        </div>
-      </li>
     );
   }
 
@@ -484,45 +403,41 @@ export function Sidebar({
       aria-label="Workspace files"
       className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
     >
-      <div className="flex items-center gap-2 px-2 py-2.5 text-xs font-medium uppercase tracking-wide text-faint">
-        {showFavorites ? (
-          <span className="flex items-center gap-2 px-1">
-            <Star size={14} aria-hidden />
-            Favorites
-          </span>
-        ) : (
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => root && onCreateUntitled(root)}
-              disabled={!root}
-              title="New file"
-              className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <FilePlus size={15} aria-hidden />
-              <span className="sr-only">New file</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => root && startCreate(root, "folder")}
-              disabled={!root}
-              title="New folder"
-              className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <FolderPlus size={15} aria-hidden />
-              <span className="sr-only">New folder</span>
-            </button>
-            {root && (
-              <TemplatePicker
-                templateFiles={templateFiles}
-                onPick={(body) => onNewFromTemplate(root, body)}
-                triggerClassName="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95"
-                triggerContent={<LayoutTemplate size={15} aria-hidden />}
-                triggerTitle="New from template"
-              />
-            )}
-          </div>
-        )}
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-line px-2">
+        <span className="px-1 text-xs font-medium uppercase tracking-wide text-faint">
+          Files
+        </span>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => root && onCreateUntitled(root)}
+            disabled={!root}
+            title="New file"
+            className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <FilePlus size={15} aria-hidden />
+            <span className="sr-only">New file</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => root && startCreate(root, "folder")}
+            disabled={!root}
+            title="New folder"
+            className="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <FolderPlus size={15} aria-hidden />
+            <span className="sr-only">New folder</span>
+          </button>
+          {root && (
+            <TemplatePicker
+              templateFiles={templateFiles}
+              onPick={(body) => onNewFromTemplate(root, body)}
+              triggerClassName="rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-ink active:scale-95"
+              triggerContent={<LayoutTemplate size={15} aria-hidden />}
+              triggerTitle="New from template"
+            />
+          )}
+        </div>
       </div>
 
       {!root ? (
@@ -531,7 +446,6 @@ export function Sidebar({
         <ul
           onContextMenu={(e) => {
             // Empty-area right-click (rows stopPropagation) → root New file/folder.
-            if (showFavorites) return;
             e.preventDefault();
             cancelHover();
             setMenu({ x: e.clientX, y: e.clientY, entry: null, inTree: false });
@@ -548,33 +462,21 @@ export function Sidebar({
             rootDropping ? "ring-1 ring-inset ring-accent/40" : ""
           }`}
         >
-          {showFavorites ? (
-            favoriteEntries.length === 0 ? (
-              <li className="px-2 py-1.5 text-sm text-faint">
-                No favorites yet. Right-click a file or folder to add it.
-              </li>
-            ) : (
-              favoriteEntries.map((entry) => renderFavoriteRow(entry))
-            )
+          {creating?.dir === root && (
+            <li style={{ paddingLeft: ROW_PAD }} className="py-0.5 pr-1">
+              {nameInput(
+                draftName,
+                setDraftName,
+                commitCreate,
+                cancelCreate,
+                creating.kind === "file" ? "name.md" : "folder name",
+              )}
+            </li>
+          )}
+          {tree.length === 0 && !creating ? (
+            <li className="px-2 py-1.5 text-sm text-faint">No markdown files.</li>
           ) : (
-            <>
-              {creating?.dir === root && (
-                <li style={{ paddingLeft: ROW_PAD }} className="py-0.5 pr-1">
-                  {nameInput(
-                    draftName,
-                    setDraftName,
-                    commitCreate,
-                    cancelCreate,
-                    creating.kind === "file" ? "name.md" : "folder name",
-                  )}
-                </li>
-              )}
-              {tree.length === 0 && !creating ? (
-                <li className="px-2 py-1.5 text-sm text-faint">No markdown files.</li>
-              ) : (
-                tree.map((node) => renderNode(node))
-              )}
-            </>
+            tree.map((node) => renderNode(node))
           )}
         </ul>
       )}
@@ -612,11 +514,15 @@ export function Sidebar({
           label: "Open terminal",
           action: () => onOpenTerminal(root),
         });
+        items.push({
+          key: "reveal",
+          icon: <FolderSearch size={14} aria-hidden />,
+          label: "Reveal in Explorer",
+          action: () => onReveal(root),
+        });
       }
       return <ContextMenuList items={items} />;
     }
-
-    const fav = favorites.has(entry.relPath);
 
     if (!entry.isDir) {
       items.push({
@@ -630,14 +536,6 @@ export function Sidebar({
         icon: <SquarePlus size={14} aria-hidden />,
         label: "Open in new tab",
         action: () => onOpenInNewTab(entry.path),
-      });
-    }
-    if (entry.isDir && !inTree) {
-      items.push({
-        key: "reveal",
-        icon: <FolderOpen size={14} aria-hidden />,
-        label: "Reveal in tree",
-        action: () => revealFolder(entry.path),
       });
     }
     if (entry.isDir && inTree) {
@@ -661,16 +559,16 @@ export function Sidebar({
       });
     }
     items.push({
+      key: "reveal",
+      icon: <FolderSearch size={14} aria-hidden />,
+      label: "Reveal in Explorer",
+      action: () => onReveal(entry.path),
+    });
+    items.push({
       key: "rename",
       icon: <Pencil size={14} aria-hidden />,
       label: "Rename",
       action: () => startRename(entry.path, entry.name),
-    });
-    items.push({
-      key: "favorite",
-      icon: <Star size={14} fill={fav ? "currentColor" : "none"} aria-hidden />,
-      label: fav ? "Remove from favorites" : "Add to favorites",
-      action: () => onToggleFavorite(entry.relPath),
     });
     items.push({
       key: "delete",

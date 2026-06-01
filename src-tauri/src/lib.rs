@@ -23,6 +23,7 @@ pub fn run() {
             fs::move_entry,
             fs::scan_links,
             fs::open_terminal,
+            fs::reveal_path,
             specs::create_spec,
             specs::scan_specs,
             specs::set_status,

@@ -1,63 +1,78 @@
 import { useState } from "react";
-import { FilePlus, FolderOpen, FolderPlus, LayoutTemplate, Star } from "lucide-react";
+import {
+  ClipboardList,
+  FilePlus,
+  FolderOpen,
+  FolderPlus,
+  LayoutTemplate,
+  Terminal,
+} from "lucide-react";
 import type { FileEntry } from "../types";
 import { textInput } from "../lib/ui";
 import { TemplatePicker } from "./TemplatePicker";
 
 interface StartViewProps {
-  /** Favorited files (folders excluded) for quick-open. */
-  favoriteFiles: FileEntry[];
   /** User template files (under `templates/`) for the New-from-template menu. */
   templateFiles: FileEntry[];
+  /** Scaffold a new spec from a title and open its `spec.md`. */
+  onCreateSpec: (title: string) => void;
   /** Create a default-named note and open it (named via the editor title). */
   onCreateUntitled: () => void;
   /** Create a note from a template body (placeholders applied upstream). */
   onNewFromTemplate: (rawBody: string) => void;
   onCreateFolder: (name: string) => void;
-  onOpenFile: (path: string) => void;
+  /** Open the OS terminal in the project (to run an external agent). */
+  onOpenTerminal: () => void;
+  /** Open the folder picker to switch projects. */
   onChangeVault: () => void;
 }
 
-/** Empty-tab landing: create things, jump to favorites, or change vault. */
+/** Empty-tab landing, framed around the spec-driven workflow: the first thing a
+ *  user reaches for is a spec, not a loose note. */
 export function StartView({
-  favoriteFiles,
   templateFiles,
+  onCreateSpec,
   onCreateUntitled,
   onNewFromTemplate,
   onCreateFolder,
-  onOpenFile,
+  onOpenTerminal,
   onChangeVault,
 }: StartViewProps) {
-  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [creating, setCreating] = useState<"spec" | "folder" | null>(null);
   const [name, setName] = useState("");
 
   function commit() {
     const trimmed = name.trim();
-    if (trimmed) onCreateFolder(trimmed);
-    setCreatingFolder(false);
+    if (trimmed) {
+      if (creating === "spec") onCreateSpec(trimmed);
+      else if (creating === "folder") onCreateFolder(trimmed);
+    }
+    setCreating(null);
     setName("");
   }
 
   function cancel() {
-    setCreatingFolder(false);
+    setCreating(null);
     setName("");
   }
 
   const action =
-    "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/10 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
+    "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
+  const primaryAction = `${action} text-accent hover:bg-accent/10`;
+  const secondaryAction = `${action} text-ink hover:bg-hover`;
 
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto bg-bg p-6">
       <div className="w-full max-w-sm">
-        <h2 className="text-base font-semibold text-ink">New tab</h2>
+        <h2 className="text-base font-semibold text-ink">Start</h2>
         <p className="mb-5 mt-1 text-sm text-muted">
-          Create something, open a favorite, or pick another vault.
+          Author a spec, draft a note, or hand work to an agent.
         </p>
 
-        {creatingFolder ? (
+        {creating ? (
           <div className="mb-5">
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-faint">
-              New folder name
+              {creating === "spec" ? "New spec title" : "New folder name"}
             </label>
             <input
               autoFocus
@@ -68,20 +83,31 @@ export function StartView({
                 if (e.key === "Enter") commit();
                 if (e.key === "Escape") cancel();
               }}
-              placeholder="folder name"
+              placeholder={creating === "spec" ? "e.g. User authentication" : "folder name"}
               className={textInput}
             />
           </div>
         ) : (
           <div className="mb-5 flex flex-col gap-0.5">
-            <button type="button" onClick={onCreateUntitled} className={action}>
+            <button
+              type="button"
+              onClick={() => {
+                setCreating("spec");
+                setName("");
+              }}
+              className={primaryAction}
+            >
+              <ClipboardList size={16} aria-hidden />
+              New spec
+            </button>
+            <button type="button" onClick={onCreateUntitled} className={secondaryAction}>
               <FilePlus size={16} aria-hidden />
               New file
             </button>
             <TemplatePicker
               templateFiles={templateFiles}
               onPick={onNewFromTemplate}
-              triggerClassName={action}
+              triggerClassName={secondaryAction}
               triggerContent={
                 <>
                   <LayoutTemplate size={16} aria-hidden />
@@ -92,46 +118,25 @@ export function StartView({
             <button
               type="button"
               onClick={() => {
-                setCreatingFolder(true);
+                setCreating("folder");
                 setName("");
               }}
-              className={action}
+              className={secondaryAction}
             >
               <FolderPlus size={16} aria-hidden />
               New folder
             </button>
-            <button type="button" onClick={onChangeVault} className={action}>
-              <FolderOpen size={16} aria-hidden />
-              Change vault
-            </button>
-          </div>
-        )}
 
-        {favoriteFiles.length > 0 && (
-          <div>
-            <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-faint">
-              <Star size={13} aria-hidden />
-              Favorites
-            </h3>
-            <ul className="flex flex-col">
-              {favoriteFiles.map((f) => (
-                <li key={f.path}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenFile(f.path)}
-                    title={f.relPath}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-ink transition-colors hover:bg-hover active:scale-[0.99]"
-                  >
-                    <span className="truncate">{f.name}</span>
-                    {f.relPath.includes("/") && (
-                      <span className="truncate text-xs text-faint">
-                        {f.relPath.slice(0, f.relPath.lastIndexOf("/"))}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <div className="my-1 h-px bg-line" aria-hidden />
+
+            <button type="button" onClick={onOpenTerminal} className={secondaryAction}>
+              <Terminal size={16} aria-hidden />
+              Open terminal in project
+            </button>
+            <button type="button" onClick={onChangeVault} className={secondaryAction}>
+              <FolderOpen size={16} aria-hidden />
+              Open / switch project
+            </button>
           </div>
         )}
       </div>

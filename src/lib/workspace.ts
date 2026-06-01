@@ -30,6 +30,10 @@ export const scanLinks = (root: string) =>
 export const openTerminal = (path: string) =>
   invoke<void>("open_terminal", { path });
 
+/** Reveal `path` in the OS file manager (Explorer/Finder), selecting it if possible. */
+export const revealPath = (path: string) =>
+  invoke<void>("reveal_path", { path });
+
 /** Scaffold a new spec folder under `<root>/specs/`; `today` is ISO YYYY-MM-DD. */
 export const createSpec = (root: string, title: string, today: string) =>
   invoke<Spec>("create_spec", { root, title, today });

@@ -2,14 +2,11 @@ import {
   ClipboardList,
   FolderTree,
   GitBranch,
-  Network,
   Search,
   Settings as SettingsIcon,
-  Star,
-  Waypoints,
 } from "lucide-react";
 
-export type SidebarView = "files" | "favorites" | "git" | "specs";
+export type SidebarView = "files" | "git" | "specs";
 
 interface RailProps {
   view: SidebarView;
@@ -18,25 +15,18 @@ interface RailProps {
   onOpenSettings: () => void;
   /** Open the command palette (Ctrl/Cmd+P). */
   onQuickOpen: () => void;
-  /** Whether the graph view is showing in the main area. */
-  graphActive: boolean;
-  onToggleGraph: () => void;
-  /** Whether the traceability view is showing in the main area. */
-  traceActive: boolean;
-  onToggleTrace: () => void;
 }
 
-/** Far-left icon rail: quick actions + sidebar view switches. */
+/** Far-left icon rail. Holds only **panel switchers** (Specs/Files/Git swap the
+ *  left sidebar) plus quick-open + settings. Main-area views (graph,
+ *  traceability) live in the top-bar view switcher, so the rail's buttons all
+ *  behave the same way. */
 export function Rail({
   view,
   sidebarVisible,
   onActivateView,
   onOpenSettings,
   onQuickOpen,
-  graphActive,
-  onToggleGraph,
-  traceActive,
-  onToggleTrace,
 }: RailProps) {
   const base =
     "flex h-9 w-9 items-center justify-center rounded-md transition-colors active:scale-95";
@@ -58,6 +48,10 @@ export function Rail({
         <Search size={18} aria-hidden />
         <span className="sr-only">Quick open</span>
       </button>
+
+      {/* Panel switchers — each swaps the left sidebar (consistent behaviour). */}
+      <div className="my-1 h-px w-5 bg-line" aria-hidden />
+
       <button
         type="button"
         onClick={() => onActivateView("specs")}
@@ -80,20 +74,6 @@ export function Rail({
       </button>
       <button
         type="button"
-        onClick={() => onActivateView("favorites")}
-        title="Favorites"
-        aria-pressed={view === "favorites" && sidebarVisible}
-        className={railBtn(view === "favorites")}
-      >
-        <Star
-          size={18}
-          fill={view === "favorites" && sidebarVisible ? "currentColor" : "none"}
-          aria-hidden
-        />
-        <span className="sr-only">Favorites</span>
-      </button>
-      <button
-        type="button"
         onClick={() => onActivateView("git")}
         title="Source control"
         aria-pressed={view === "git" && sidebarVisible}
@@ -101,26 +81,6 @@ export function Rail({
       >
         <GitBranch size={18} aria-hidden />
         <span className="sr-only">Source control</span>
-      </button>
-      <button
-        type="button"
-        onClick={onToggleGraph}
-        title="Graph view"
-        aria-pressed={graphActive}
-        className={graphActive ? `${base} bg-accent/10 text-accent` : ghost}
-      >
-        <Network size={18} aria-hidden />
-        <span className="sr-only">Graph view</span>
-      </button>
-      <button
-        type="button"
-        onClick={onToggleTrace}
-        title="Traceability"
-        aria-pressed={traceActive}
-        className={traceActive ? `${base} bg-accent/10 text-accent` : ghost}
-      >
-        <Waypoints size={18} aria-hidden />
-        <span className="sr-only">Traceability</span>
       </button>
 
       <button

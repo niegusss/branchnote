@@ -110,6 +110,10 @@ export function EditorPane({
           value={value}
           onChange={onChange}
           extensions={extensions}
+          // `h-full` on the react-codemirror wrapper keeps the height:100% chain
+          // intact down to `.cm-editor`, so `.cm-scroller` overflows and scrolls
+          // (without it the wrapper is auto-height and content is just clipped).
+          className="h-full"
           height="100%"
           basicSetup={{
             lineNumbers: true,

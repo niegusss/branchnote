@@ -87,9 +87,11 @@ export function SpecsPanel({
     });
   }
 
+  /** Clicking a spec row toggles it open/closed; opening also shows its `spec.md`. */
   function openSpec(spec: Spec) {
-    setExpanded((prev) => new Set(prev).add(spec.dirRelPath));
-    onOpenFile(spec.specPath);
+    const willOpen = !expanded.has(spec.dirRelPath);
+    toggle(spec.dirRelPath);
+    if (willOpen) onOpenFile(spec.specPath);
   }
 
   function commit() {
@@ -104,7 +106,7 @@ export function SpecsPanel({
       aria-label="Specs"
       className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
     >
-      <div className="flex items-center justify-between px-2 py-2.5 text-xs font-medium uppercase tracking-wide text-faint">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-line px-2 text-xs font-medium uppercase tracking-wide text-faint">
         <span className="px-1">Specs</span>
         <button
           type="button"
@@ -154,12 +156,12 @@ export function SpecsPanel({
               const kids = filesBySpec.get(spec.dirRelPath) ?? [];
               return (
                 <li key={spec.dirRelPath}>
-                  <div className="flex items-center gap-0.5 px-1">
+                  <div className="flex items-start gap-0.5 px-1">
                     <button
                       type="button"
                       onClick={() => toggle(spec.dirRelPath)}
                       title={isOpen ? "Collapse" : "Expand"}
-                      className="rounded p-0.5 text-faint transition-colors hover:bg-hover hover:text-ink"
+                      className="mt-1.5 rounded p-0.5 text-faint transition-colors hover:bg-hover hover:text-ink"
                     >
                       {isOpen ? (
                         <ChevronDown size={14} aria-hidden />
