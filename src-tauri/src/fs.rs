@@ -380,6 +380,60 @@ pub fn open_terminal(path: String) -> Result<(), String> {
     Err("Opening a terminal isn't supported on this platform".into())
 }
 
+/// Reveal `path` in the OS file manager, selecting the item when possible. Best-
+/// effort per platform, mirroring `open_terminal`. Works for files and folders.
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    use std::process::Command;
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // `explorer /select,<path>` opens the parent folder with the item selected.
+        // explorer.exe returns a non-zero exit code even on success, so spawning
+        // (not waiting on status) is the reliable check.
+        return Command::new("explorer")
+            .arg(format!("/select,{}", target.display()))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return Command::new("open")
+            .arg("-R")
+            .arg(&target)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // No portable file-select; open the containing directory instead.
+        let dir = if target.is_dir() {
+            target.clone()
+        } else {
+            target
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or(target.clone())
+        };
+        return Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Revealing a path isn't supported on this platform".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

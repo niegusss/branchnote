@@ -1,5 +1,6 @@
 mod fs;
 mod git;
+mod specs;
 mod watcher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -7,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(watcher::WatcherState::default())
         .invoke_handler(tauri::generate_handler![
             fs::default_vault,
@@ -21,11 +23,17 @@ pub fn run() {
             fs::move_entry,
             fs::scan_links,
             fs::open_terminal,
+            fs::reveal_path,
+            specs::create_spec,
+            specs::scan_specs,
+            specs::set_status,
+            specs::write_handoff,
             git::git_is_repo,
             git::git_init,
             git::git_status,
             git::git_worktree,
             git::git_log,
+            git::git_spec_commits,
             git::git_stage,
             git::git_unstage,
             git::git_stage_all,

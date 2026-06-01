@@ -69,6 +69,23 @@ pub struct CommitInfo {
     pub time: i64,
 }
 
+/// A commit that references a spec (for the Traceability view). Mirrors TS `SpecCommit`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecCommit {
+    /// Full commit hash.
+    pub id: String,
+    /// Abbreviated hash (7 chars) for display.
+    pub short_id: String,
+    pub summary: String,
+    pub author: String,
+    pub time: i64,
+    /// Spec id referenced by the message, normalized e.g. "SPEC-001".
+    pub spec_id: String,
+    /// Task ids referenced, normalized e.g. ["T001", "T003"].
+    pub tasks: Vec<String>,
+}
+
 /// Open the repository whose working directory is exactly `path`.
 ///
 /// We use `open` (not `discover`) on purpose: the vault root *is* the repo root,
@@ -252,6 +269,94 @@ pub fn git_log(path: String, limit: u32) -> Result<Vec<CommitInfo>, String> {
             author: commit.author().name().unwrap_or_default().to_string(),
             time: commit.time().seconds(),
         });
+    }
+    Ok(out)
+}
+
+/// Read ASCII digits from `chars` at `start`; returns (number, end_index).
+fn parse_digits(chars: &[char], start: usize) -> Option<(u64, usize)> {
+    let mut i = start;
+    let mut s = String::new();
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        s.push(chars[i]);
+        i += 1;
+    }
+    s.parse::<u64>().ok().map(|n| (n, i))
+}
+
+/// Scan a commit message for the first `SPEC-<n>` reference and all `T<n>` task
+/// tokens (at word boundaries), normalized to zero-padded ids (`SPEC-001`,
+/// `T003`). Pure — drives the Traceability view. Tokens inside words are ignored.
+fn extract_refs(message: &str) -> (Option<String>, Vec<String>) {
+    let chars: Vec<char> = message.chars().collect();
+    let lower: Vec<char> = message.to_ascii_lowercase().chars().collect();
+    let n = chars.len();
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+
+    let mut spec: Option<String> = None;
+    let mut tasks: Vec<String> = Vec::new();
+
+    let mut i = 0;
+    while i < n {
+        let boundary = i == 0 || !is_word(chars[i - 1]);
+        // SPEC-<digits> (first one wins)
+        if spec.is_none()
+            && boundary
+            && i + 5 <= n
+            && lower[i] == 's'
+            && lower[i + 1] == 'p'
+            && lower[i + 2] == 'e'
+            && lower[i + 3] == 'c'
+            && chars[i + 4] == '-'
+        {
+            if let Some((num, _)) = parse_digits(&chars, i + 5) {
+                spec = Some(format!("SPEC-{num:03}"));
+            }
+        }
+        // T<digits> at a word boundary, ending at a boundary
+        if boundary && (chars[i] == 'T' || chars[i] == 't') {
+            if let Some((num, end)) = parse_digits(&chars, i + 1) {
+                if end >= n || !is_word(chars[end]) {
+                    let id = format!("T{num:03}");
+                    if !tasks.contains(&id) {
+                        tasks.push(id);
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    (spec, tasks)
+}
+
+/// Commits that reference a spec in their message, newest first, up to `limit`.
+/// Used by the Traceability view to map spec → task → commit.
+#[tauri::command]
+pub fn git_spec_commits(path: String, limit: u32) -> Result<Vec<SpecCommit>, String> {
+    let repo = open_repo(&path)?;
+    if repo.head().is_err() {
+        return Ok(Vec::new());
+    }
+    let mut revwalk = repo.revwalk().map_err(|e| e.to_string())?;
+    revwalk.push_head().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for oid in revwalk.take(limit as usize) {
+        let oid = oid.map_err(|e| e.to_string())?;
+        let commit = repo.find_commit(oid).map_err(|e| e.to_string())?;
+        let (spec, tasks) = extract_refs(commit.message().unwrap_or_default());
+        if let Some(spec_id) = spec {
+            let id = oid.to_string();
+            let short_id = id.chars().take(7).collect::<String>();
+            out.push(SpecCommit {
+                id,
+                short_id,
+                summary: commit.summary().unwrap_or_default().to_string(),
+                author: commit.author().name().unwrap_or_default().to_string(),
+                time: commit.time().seconds(),
+                spec_id,
+                tasks,
+            });
+        }
     }
     Ok(out)
 }
@@ -833,6 +938,41 @@ mod tests {
         assert_eq!(log[0].summary, "second");
         assert_eq!(log[1].summary, "first");
         assert_eq!(log[0].author, "Test");
+    }
+
+    #[test]
+    fn extract_refs_parses_spec_and_tasks() {
+        let (spec, tasks) = extract_refs("SPEC-1 T3: add login");
+        assert_eq!(spec, Some("SPEC-001".to_string()));
+        assert_eq!(tasks, vec!["T003".to_string()]);
+
+        let (spec, tasks) = extract_refs("SPEC-002 implement T001 and T002");
+        assert_eq!(spec, Some("SPEC-002".to_string()));
+        assert_eq!(tasks, vec!["T001".to_string(), "T002".to_string()]);
+    }
+
+    #[test]
+    fn extract_refs_ignores_non_refs_and_in_word_tokens() {
+        assert_eq!(extract_refs("chore: tidy up"), (None, Vec::new()));
+        // 'T' inside words (STATUS, reTest) must not match.
+        let (spec, tasks) = extract_refs("STATUS reTest done");
+        assert_eq!(spec, None);
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn git_spec_commits_links_by_message() {
+        let (_d, path) = temp_repo();
+        fs::write(Path::new(&path).join("a.md"), "1").unwrap();
+        commit_all(&path, "SPEC-001 T001: add a");
+        fs::write(Path::new(&path).join("b.md"), "2").unwrap();
+        commit_all(&path, "chore: unrelated");
+
+        let sc = git_spec_commits(path, 10).unwrap();
+        assert_eq!(sc.len(), 1);
+        assert_eq!(sc[0].spec_id, "SPEC-001");
+        assert_eq!(sc[0].tasks, vec!["T001".to_string()]);
+        assert_eq!(sc[0].short_id.len(), 7);
     }
 
     #[test]

@@ -94,6 +94,7 @@ html.dark {
   font-family: theme("fontFamily.mono");
   font-size: 13px;
   line-height: 1.7;
+  overflow: auto;
 }
 
 .cm-editor .cm-content {

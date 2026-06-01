@@ -14,20 +14,26 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Onboarding } from "./components/Onboarding";
 import { QuickOpen, type Command } from "./components/QuickOpen";
 import { GraphView } from "./components/GraphView";
+import { SpecsPanel } from "./components/SpecsPanel";
+import { TraceabilityView } from "./components/TraceabilityView";
+import { ToastHost, type Toast, type ToastKind } from "./components/Toast";
 import {
+  ClipboardList,
   Download,
   FilePlus,
+  FileText,
   FolderOpen,
   FolderPlus,
+  FolderSearch,
   GitBranch,
   Maximize2,
   Network,
   PanelRight,
   Settings as SettingsIcon,
-  Star,
   SunMoon,
   Terminal,
   Upload,
+  Waypoints,
 } from "lucide-react";
 import {
   createFile,
@@ -37,16 +43,24 @@ import {
   deleteEntry,
   listEntries,
   moveEntry,
+  copyText,
+  createSpec,
   onWorkspaceChanged,
   openTerminal,
+  revealPath,
   pickFolder,
   readFile,
   renameEntry,
   saveFile,
   scanLinks,
+  scanSpecs,
+  setSpecStatus,
   watchFolder,
+  writeHandoff,
 } from "./lib/workspace";
 import { buildGraph, type GraphEdge, type GraphNode } from "./lib/graph";
+import { todayISO } from "./lib/specs";
+import { toggleTask } from "./lib/tasks";
 import {
   gitCommit,
   gitGetRemote,
@@ -55,6 +69,7 @@ import {
   gitLog,
   gitPull,
   gitPush,
+  gitSpecCommits,
   gitStage,
   gitStageAll,
   gitStatus,
@@ -72,16 +87,22 @@ import {
   watchSystem,
   type Theme,
 } from "./lib/theme";
-import type { CommitInfo, FileEntry, GitFileStatus, GitStatus } from "./types";
+import type { CommitInfo, FileEntry, GitFileStatus, GitStatus, Spec, SpecCommit, SpecStatus } from "./types";
 
 const PREVIEW_KEY = "branchnote.previewVisible";
 /** How many commits to show in the Git panel's history list. */
 const GIT_LOG_LIMIT = 50;
 const SIDEBAR_KEY = "branchnote.sidebarVisible";
 const VAULT_KEY = "branchnote.vaultPath";
-const FAVORITES_KEY = "branchnote.favorites";
+/** Persisted list of recently-opened projects (vaults), most-recent-first. */
+const RECENTS_KEY = "branchnote.recentVaults";
+/** How many recent projects to remember. */
+const RECENTS_MAX = 8;
 /** How long after the last keystroke to auto-save the active tab. */
 const AUTOSAVE_MS = 600;
+
+/** Which view occupies the main content area (right of the panel). */
+type MainView = "editor" | "graph" | "trace";
 
 /** One open editor tab. `path: null` is an empty tab showing the start view. */
 interface Tab {
@@ -99,28 +120,6 @@ const newId = () =>
 const emptyTab = (): Tab => ({ id: newId(), path: null, draft: "", saved: "" });
 const isDirty = (t: Tab): boolean => t.path !== null && t.draft !== t.saved;
 
-/** Favorites are stored per-vault as relPaths under a single localStorage map. */
-function loadFavorites(vault: string): Set<string> {
-  try {
-    const all = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "{}");
-    const arr = all?.[vault];
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveFavorites(vault: string, favs: Set<string>): void {
-  let all: Record<string, string[]> = {};
-  try {
-    all = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "{}");
-  } catch {
-    all = {};
-  }
-  all[vault] = [...favs];
-  localStorage.setItem(FAVORITES_KEY, JSON.stringify(all));
-}
-
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || p;
@@ -129,18 +128,6 @@ function basename(p: string): string {
 /** Drop a trailing markdown extension. */
 function stripMd(name: string): string {
   return name.replace(/\.(md|markdown)$/i, "");
-}
-
-/** The note title = its first line with the leading `#`s stripped, or "". */
-function titleFromDoc(text: string): string {
-  const first = text.split(/\r?\n/, 1)[0] ?? "";
-  return first.replace(/^#+\s*/, "").trim();
-}
-
-/** Replace just the first line of `content` with `# title`, keeping the rest. */
-function setDocTitle(content: string, title: string): string {
-  const nl = content.indexOf("\n");
-  return `# ${title}${nl === -1 ? "" : content.slice(nl)}`;
 }
 
 /** Turn a title into a safe file name (no path separators / illegal chars). */
@@ -178,11 +165,24 @@ function App() {
   const [vaultPath, setVaultPath] = useState<string | null>(
     () => localStorage.getItem(VAULT_KEY),
   );
+  /** Recently-opened projects (vaults), most-recent-first. */
+  const [recentVaults, setRecentVaults] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(RECENTS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<Tab[]>(() => [emptyTab()]);
   const [activeId, setActiveId] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  /** Pre-vault error shown on the Onboarding screen (in-app errors use toasts). */
   const [error, setError] = useState<string | null>(null);
+  /** Bottom-right dismissable notifications for in-app errors/warnings/info. */
+  const [toasts, setToasts] = useState<Toast[]>([]);
   /** Path of a just-created note whose editor should focus (cursor at end). */
   const [focusEditorFor, setFocusEditorFor] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -191,12 +191,16 @@ function App() {
   const [quickOpen, setQuickOpen] = useState(false);
   /** Focus mode hides the sidebar + preview, centring the editor (Ctrl+Shift+F). */
   const [focusMode, setFocusMode] = useState(false);
-  /** Graph view occupies the main area when open. */
-  const [graphOpen, setGraphOpen] = useState(false);
+  /** Which view fills the main area. "editor" shows the open file (or StartView);
+   *  "graph"/"trace" replace it. Mutually exclusive by construction. */
+  const [mainView, setMainView] = useState<MainView>("editor");
   const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] }>({
     nodes: [],
     edges: [],
   });
+  /** Specs are a left-panel view (SDD: specs are the primary navigation unit). */
+  const [specsData, setSpecsData] = useState<Spec[]>([]);
+  const [traceData, setTraceData] = useState<SpecCommit[]>([]);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     const v = localStorage.getItem(PREVIEW_KEY);
     return v === null ? true : v === "true";
@@ -210,7 +214,6 @@ function App() {
   const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">(() =>
     resolveTheme(getStoredTheme()),
   );
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
   // Git (read path). `gitRepo === null` means detection hasn't run yet.
   const [gitRepo, setGitRepo] = useState<boolean | null>(null);
@@ -219,10 +222,6 @@ function App() {
   const [gitUnstaged, setGitUnstaged] = useState<GitFileStatus[]>([]);
   const [gitLogState, setGitLogState] = useState<CommitInfo[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
-  const [gitError, setGitError] = useState<string | null>(null);
-  /** Advisory git message needing user action (e.g. a diverged pull). */
-  const [gitWarn, setGitWarn] = useState<string | null>(null);
-  const [gitNotice, setGitNotice] = useState<string | null>(null);
   /** Which sync action is in flight (for per-button progress labels). */
   const [gitBusy, setGitBusy] = useState<"push" | "pull" | null>(null);
   const [gitHasRemote, setGitHasRemote] = useState(false);
@@ -238,13 +237,6 @@ function App() {
     for (const t of tabs) if (isDirty(t) && t.path) s.add(t.path);
     return s;
   }, [tabs]);
-  const favoriteFiles = useMemo(
-    () =>
-      files
-        .filter((f) => !f.isDir && favorites.has(f.relPath))
-        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
-    [files, favorites],
-  );
   // User templates: immediate `.md` children of a `templates/` folder.
   const templateFiles = useMemo(
     () =>
@@ -268,64 +260,14 @@ function App() {
     [wikiNames],
   );
 
-  /** Convert an absolute path to a vault-relative, forward-slashed path. */
-  const toRel = useCallback(
-    (abs: string): string => {
-      if (!vaultPath) return abs;
-      const r = abs.startsWith(vaultPath) ? abs.slice(vaultPath.length) : abs;
-      return r.replace(/^[\\/]+/, "").replace(/\\/g, "/");
-    },
-    [vaultPath],
-  );
+  /** Push a dismissable toast (bottom-right). */
+  const pushToast = useCallback((kind: ToastKind, message: string) => {
+    setToasts((prev) => [...prev, { id: newId(), kind, message }]);
+  }, []);
 
-  function toggleFavorite(relPath: string) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(relPath)) next.delete(relPath);
-      else next.add(relPath);
-      return next;
-    });
-  }
-
-  /** Keep favorites pointing at the right path after a rename/move. */
-  function swapFavorite(oldRel: string, newRel: string) {
-    setFavorites((prev) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const r of prev) {
-        if (r === oldRel) {
-          next.add(newRel);
-          changed = true;
-        } else if (r.startsWith(oldRel + "/")) {
-          next.add(newRel + r.slice(oldRel.length));
-          changed = true;
-        } else {
-          next.add(r);
-        }
-      }
-      return changed ? next : prev;
-    });
-  }
-
-  // Persist favorites for the current vault whenever they change.
-  useEffect(() => {
-    if (vaultPath) saveFavorites(vaultPath, favorites);
-  }, [favorites, vaultPath]);
-
-  // Prune favorites whose entry no longer exists (external deletes/moves).
-  useEffect(() => {
-    if (!vaultPath) return;
-    setFavorites((prev) => {
-      const valid = new Set(files.map((f) => f.relPath));
-      let changed = false;
-      const next = new Set<string>();
-      for (const r of prev) {
-        if (valid.has(r)) next.add(r);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [files, vaultPath]);
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(PREVIEW_KEY, String(previewVisible));
@@ -390,13 +332,12 @@ function App() {
         setGitLogState([]);
         setGitHasRemote(false);
       }
-      setGitError(null);
     } catch (e) {
-      setGitError(formatErr(e));
+      pushToast("error", formatErr(e));
     } finally {
       setGitLoading(false);
     }
-  }, []);
+  }, [pushToast]);
 
   /** Initialise a repo in the current vault, then load its state. */
   async function onGitInit() {
@@ -405,7 +346,7 @@ function App() {
     try {
       await gitInit(v);
     } catch (e) {
-      setGitError(formatErr(e));
+      pushToast("error", formatErr(e));
       return;
     }
     await refreshGit();
@@ -417,25 +358,23 @@ function App() {
     async (fn: (vault: string) => Promise<void>): Promise<boolean> => {
       const v = live.current.vaultPath;
       if (!v) return false;
-      setGitNotice(null);
-      setGitWarn(null);
       try {
         await fn(v);
       } catch (e) {
-        setGitError(formatErr(e));
+        pushToast("error", formatErr(e));
         return false;
       }
       await refreshGit();
       return true;
     },
-    [refreshGit],
+    [refreshGit, pushToast],
   );
 
   /** Push the current branch, with a success notice. */
   async function onGitPush() {
     setGitBusy("push");
     try {
-      if (await runGit((v) => gitPush(v))) setGitNotice("Pushed to origin");
+      if (await runGit((v) => gitPush(v))) pushToast("info", "Pushed to origin");
     } finally {
       setGitBusy(null);
     }
@@ -445,26 +384,24 @@ function App() {
   async function onGitPull() {
     const v = live.current.vaultPath;
     if (!v) return;
-    setGitError(null);
-    setGitNotice(null);
-    setGitWarn(null);
     setGitBusy("pull");
     let outcome: string;
     try {
       outcome = await gitPull(v);
     } catch (e) {
-      setGitError(formatErr(e));
+      pushToast("error", formatErr(e));
       return;
     } finally {
       setGitBusy(null);
     }
     await refreshGit();
     if (outcome === "up-to-date") {
-      setGitNotice("Already up to date");
+      pushToast("info", "Already up to date");
     } else if (outcome === "fast-forward") {
-      setGitNotice("Fast-forwarded from origin");
+      pushToast("info", "Fast-forwarded from origin");
     } else {
-      setGitWarn(
+      pushToast(
+        "warn",
         "Branch has diverged: you have local commits and origin has new ones. " +
           "Merge or rebase (e.g. `git pull --rebase` in a terminal), then push.",
       );
@@ -473,8 +410,6 @@ function App() {
 
   // Load git state when the vault changes; clear it when there's no vault.
   useEffect(() => {
-    setGitWarn(null);
-    setGitNotice(null);
     if (!vaultPath) {
       setGitRepo(null);
       setGitStatusState(null);
@@ -489,7 +424,7 @@ function App() {
 
   // Build the wikilink graph when it's open (and refresh as files change).
   useEffect(() => {
-    if (!graphOpen || !vaultPath) return;
+    if (mainView !== "graph" || !vaultPath) return;
     let cancelled = false;
     void scanLinks(vaultPath)
       .then((links) => {
@@ -501,7 +436,47 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [graphOpen, vaultPath, files]);
+  }, [mainView, vaultPath, files]);
+
+  // Project the specs/ folder when the Specs panel is shown (refresh as the disk
+  // changes). The filesystem is the source of truth — this is a pure re-scan.
+  useEffect(() => {
+    if (sidebarView !== "specs" || !sidebarVisible || !vaultPath) return;
+    let cancelled = false;
+    void scanSpecs(vaultPath)
+      .then((specs) => {
+        if (!cancelled) setSpecsData(specs);
+      })
+      .catch(() => {
+        if (!cancelled) setSpecsData([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sidebarView, sidebarVisible, vaultPath, files]);
+
+  // Load traceability data when the view is open: specs + commits that reference
+  // a spec (newest first). Refreshes on file/git changes (watcher fires on .git/).
+  useEffect(() => {
+    if (mainView !== "trace" || !vaultPath) return;
+    let cancelled = false;
+    void Promise.all([
+      scanSpecs(vaultPath),
+      gitRepo ? gitSpecCommits(vaultPath, 500) : Promise.resolve([] as SpecCommit[]),
+    ])
+      .then(([specs, commits]) => {
+        if (!cancelled) {
+          setSpecsData(specs);
+          setTraceData(commits);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTraceData([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mainView, vaultPath, gitRepo, files]);
 
   function patchTab(id: string, patch: Partial<Tab>) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -515,59 +490,13 @@ function App() {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, saved: draft } : t)));
   }, []);
 
-  /** Rename a tab's file to match its first-line `#` title (quiet — collisions
-   *  are ignored). The H1 is the source of truth for the file name. */
-  const reconcileTitle = useCallback(
-    async (tab: Tab) => {
-      const v = live.current.vaultPath;
-      if (!v || !tab.path) return;
-      const name = sanitizeFileName(titleFromDoc(tab.draft));
-      if (!name || name === stripMd(basename(tab.path))) return;
-      const oldPath = tab.path;
-      let newPath: string;
-      try {
-        newPath = await renameEntry(oldPath, name);
-      } catch {
-        return; // collision / invalid — keep the current name silently
-      }
-      setFiles(await listEntries(v));
-      const oldRel = toRel(oldPath);
-      const newRel = toRel(newPath);
-      setFavorites((prev) => {
-        let changed = false;
-        const next = new Set<string>();
-        for (const r of prev) {
-          if (r === oldRel) {
-            next.add(newRel);
-            changed = true;
-          } else if (r.startsWith(oldRel + "/")) {
-            next.add(newRel + r.slice(oldRel.length));
-            changed = true;
-          } else {
-            next.add(r);
-          }
-        }
-        return changed ? next : prev;
-      });
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.path && isUnder(t.path, oldPath)
-            ? { ...t, path: swapPrefix(t.path, oldPath, newPath) }
-            : t,
-        ),
-      );
-    },
-    [toRel],
-  );
-
-  /** Run an async action with busy/error bookkeeping. */
+  /** Run an async action with busy/error bookkeeping (errors → toast). */
   async function run(action: () => Promise<void>) {
     setBusy(true);
-    setError(null);
     try {
       await action();
     } catch (e) {
-      setError(formatErr(e));
+      pushToast("error", formatErr(e));
     } finally {
       setBusy(false);
     }
@@ -579,10 +508,10 @@ function App() {
     const id = active.id;
     const timer = setTimeout(() => {
       const cur = live.current.tabs.find((t) => t.id === id);
-      if (cur) void flushTab(cur).then(() => reconcileTitle(cur));
+      if (cur) void flushTab(cur);
     }, AUTOSAVE_MS);
     return () => clearTimeout(timer);
-  }, [active.id, active.draft, active.path, activeDirty, flushTab, reconcileTitle]);
+  }, [active.id, active.draft, active.path, activeDirty, flushTab]);
 
   // Ctrl/Cmd+S flushes the active tab immediately.
   useEffect(() => {
@@ -591,11 +520,7 @@ function App() {
         e.preventDefault();
         const { tabs: ts, activeId: aid } = live.current;
         const cur = ts.find((t) => t.id === aid) ?? ts[0];
-        if (cur)
-          void run(async () => {
-            await flushTab(cur);
-            await reconcileTitle(cur);
-          });
+        if (cur) void run(() => flushTab(cur));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -630,6 +555,13 @@ function App() {
 
   function updateActiveDraft(value: string) {
     patchTab(active.id, { draft: value });
+  }
+
+  /** Toggle the index-th task checkbox in the active note (clicked in preview).
+   *  Edits the draft; the autosave effect persists it and spec progress refreshes. */
+  function onToggleTask(index: number) {
+    const next = toggleTask(active.draft, index);
+    if (next !== active.draft) patchTab(active.id, { draft: next });
   }
 
   function newTab() {
@@ -672,11 +604,21 @@ function App() {
       await watchFolder(path);
       setVaultPath(path);
       localStorage.setItem(VAULT_KEY, path);
+      setRecentVaults((prev) => {
+        const next = [path, ...prev.filter((p) => p !== path)].slice(0, RECENTS_MAX);
+        localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+        return next;
+      });
       setFiles(list);
-      setFavorites(loadFavorites(path));
       const fresh = emptyTab();
       setTabs([fresh]);
       setActiveId(fresh.id);
+      // Specs-first: if this vault already has specs, land on the Specs panel.
+      setMainView("editor");
+      if (list.some((f) => f.isDir && f.relPath === "specs")) {
+        setSidebarView("specs");
+        setSidebarVisible(true);
+      }
     } catch (e) {
       setError(formatErr(e));
       setVaultPath(null);
@@ -722,7 +664,7 @@ function App() {
     try {
       picked = await pickFolder();
     } catch (e) {
-      setError(formatErr(e));
+      pushToast("error", formatErr(e));
       return;
     }
     if (picked) {
@@ -739,13 +681,62 @@ function App() {
     try {
       await openTerminal(target);
     } catch (e) {
-      setError(formatErr(e));
+      pushToast("error", formatErr(e));
+    }
+  }
+
+  /** Reveal a file or folder in the OS file manager (Explorer/Finder). */
+  async function onReveal(path: string) {
+    try {
+      await revealPath(path);
+    } catch (e) {
+      pushToast("error", formatErr(e));
+    }
+  }
+
+  /** Create a new spec folder from a title, refresh the list, and open its
+   *  `spec.md` in the editor. */
+  async function onCreateSpec(title: string) {
+    if (!vaultPath) return;
+    await run(async () => {
+      await flushTab(active);
+      const spec = await createSpec(vaultPath, title, todayISO());
+      setFiles(await listEntries(vaultPath));
+      setSpecsData(await scanSpecs(vaultPath));
+      const content = await readFile(spec.specPath);
+      patchTab(active.id, { path: spec.specPath, draft: content, saved: content });
+    });
+  }
+
+  /** Compose a context package for an external agent: write `handoff.md`, copy it
+   *  to the clipboard, open it for review, and open a terminal in the vault. */
+  async function onHandoff(spec: Spec) {
+    if (!vaultPath) return;
+    try {
+      const res = await writeHandoff(vaultPath, spec.dirRelPath);
+      setFiles(await listEntries(vaultPath));
+      await copyText(res.content);
+      await selectFile(res.path);
+      await openTerminal(vaultPath);
+    } catch (e) {
+      pushToast("error", formatErr(e));
+    }
+  }
+
+  /** Set a spec's status (a human declaration), then re-project the list. */
+  async function onSetSpecStatus(spec: Spec, status: SpecStatus) {
+    if (!vaultPath) return;
+    try {
+      await setSpecStatus(spec.specPath, status, todayISO());
+      setSpecsData(await scanSpecs(vaultPath));
+    } catch (e) {
+      pushToast("error", formatErr(e));
     }
   }
 
   /** Open a file in the active tab (replacing its content). */
   async function selectFile(path: string) {
-    setGraphOpen(false);
+    setMainView("editor");
     if (active.path === path) return;
     await run(async () => {
       await flushTab(active);
@@ -756,7 +747,7 @@ function App() {
 
   /** Open a file in a brand-new tab. */
   async function openInNewTab(path: string) {
-    setGraphOpen(false);
+    setMainView("editor");
     await run(async () => {
       const content = await readFile(path);
       const tab: Tab = { id: newId(), path, draft: content, saved: content };
@@ -824,33 +815,15 @@ function App() {
   async function handleRename(path: string, newName: string) {
     if (!vaultPath) return;
     await run(async () => {
-      const isFile = files.find((f) => f.path === path)?.isDir === false;
+      // A rename is a pure rename — file content (incl. any `# H1`) is untouched.
       const newPath = await renameEntry(path, newName);
-      // Two-way sync: a file rename rewrites its first-line `#` title to match.
-      let newContent: string | null = null;
-      if (isFile) {
-        const bare = stripMd(basename(newPath));
-        const openTab = tabs.find((t) => t.path === path);
-        const base = openTab ? openTab.draft : await readFile(newPath);
-        const updated = setDocTitle(base, bare);
-        if (updated !== base) {
-          await saveFile(newPath, updated);
-          newContent = updated;
-        } else if (openTab) {
-          newContent = updated; // unchanged, but keep the open tab in sync
-        }
-      }
       setFiles(await listEntries(vaultPath));
-      swapFavorite(toRel(path), toRel(newPath));
       setTabs((prev) =>
-        prev.map((t) => {
-          if (!t.path || !isUnder(t.path, path)) return t;
-          const np = swapPrefix(t.path, path, newPath);
-          if (t.path === path && newContent !== null) {
-            return { ...t, path: np, draft: newContent, saved: newContent };
-          }
-          return { ...t, path: np };
-        }),
+        prev.map((t) =>
+          t.path && isUnder(t.path, path)
+            ? { ...t, path: swapPrefix(t.path, path, newPath) }
+            : t,
+        ),
       );
     });
   }
@@ -886,7 +859,6 @@ function App() {
     try {
       const newPath = await moveEntry(src, destDir);
       setFiles(await listEntries(vaultPath));
-      swapFavorite(toRel(src), toRel(newPath));
       setTabs((prev) =>
         prev.map((t) =>
           t.path && isUnder(t.path, src)
@@ -969,15 +941,18 @@ function App() {
         { id: "new-folder", label: "New folder", keywords: "create directory", icon: ic(<FolderPlus size={14} />), run: () => void handleCreateFolder(vaultPath, "Untitled folder") },
         { id: "toggle-preview", label: previewVisible ? "Hide preview" : "Show preview", keywords: "markdown render", icon: ic(<PanelRight size={14} />), run: () => setPreviewVisible((v) => !v) },
         { id: "focus-mode", label: focusMode ? "Exit focus mode" : "Focus mode", hint: "Ctrl+Shift+F", keywords: "distraction free", icon: ic(<Maximize2 size={14} />), run: () => setFocusMode((v) => !v) },
-        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => setGraphOpen(true) },
+        { id: "specs", label: "Open specs", keywords: "spec sdd requirements plan tasks", icon: ic(<ClipboardList size={14} />), run: () => onActivateView("specs") },
+        { id: "editor", label: "Open editor", keywords: "file note document", icon: ic(<FileText size={14} />), run: () => setMainView("editor") },
+        { id: "graph", label: "Open graph view", keywords: "links network connections", icon: ic(<Network size={14} />), run: () => setMainView("graph") },
+        { id: "trace", label: "Open traceability", keywords: "commits spec task verify trace", icon: ic(<Waypoints size={14} />), run: () => setMainView("trace") },
         { id: "theme", label: `Theme: switch to ${nextTheme}`, keywords: "dark light system appearance", icon: ic(<SunMoon size={14} />), run: () => changeTheme(nextTheme) },
         { id: "git", label: "Open Source control", keywords: "git version", icon: ic(<GitBranch size={14} />), run: () => onActivateView("git") },
         { id: "git-pull", label: "Git: Pull", keywords: "fetch sync", icon: ic(<Download size={14} />), run: () => void onGitPull() },
         { id: "git-push", label: "Git: Push", keywords: "sync upload", icon: ic(<Upload size={14} />), run: () => void onGitPush() },
-        { id: "favorites", label: "Show favorites", keywords: "starred", icon: ic(<Star size={14} />), run: () => onActivateView("favorites") },
         { id: "settings", label: "Open Settings", keywords: "preferences config", icon: ic(<SettingsIcon size={14} />), run: () => setSettingsOpen(true) },
-        { id: "change-vault", label: "Change vault…", keywords: "open folder workspace", icon: ic(<FolderOpen size={14} />), run: () => void changeVault() },
+        { id: "change-vault", label: "Switch project…", keywords: "open folder workspace vault change project", icon: ic(<FolderOpen size={14} />), run: () => void changeVault() },
         { id: "terminal", label: "Open terminal in vault", keywords: "shell console ai agent claude aider", icon: ic(<Terminal size={14} />), run: () => void onOpenTerminal() },
+        { id: "reveal", label: "Reveal current file in Explorer", keywords: "show folder finder explorer", icon: ic(<FolderSearch size={14} />), run: () => { if (active.path) void onReveal(active.path); else void onReveal(vaultPath); } },
       ]
     : [];
 
@@ -985,6 +960,10 @@ function App() {
     <div className="flex h-full flex-col bg-bg text-ink">
       <TitleBar
         vaultName={vaultPath ? basename(vaultPath) : null}
+        vaultPath={vaultPath}
+        recents={recentVaults}
+        onOpenProject={(path) => void openVault(path)}
+        onPickProject={() => void changeVault()}
         fileName={activeFile?.name ?? null}
         dirty={activeDirty}
       />
@@ -998,22 +977,6 @@ function App() {
         />
       ) : (
         <>
-          {error && (
-            <div
-              role="alert"
-              className="flex items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-3 py-1.5 text-sm text-danger"
-            >
-              <span className="truncate">{error}</span>
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="shrink-0 rounded px-1.5 text-danger transition-colors hover:bg-danger/15"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
           <div className="flex min-h-0 flex-1">
             <Rail
               view={sidebarView}
@@ -1021,13 +984,21 @@ function App() {
               onActivateView={onActivateView}
               onOpenSettings={() => setSettingsOpen(true)}
               onQuickOpen={() => setQuickOpen(true)}
-              graphActive={graphOpen}
-              onToggleGraph={() => setGraphOpen((v) => !v)}
             />
 
             {sidebarVisible &&
               !focusMode &&
-              (sidebarView === "git" ? (
+              (sidebarView === "specs" ? (
+                <SpecsPanel
+                  specs={specsData}
+                  files={files}
+                  selectedPath={active.path}
+                  onOpenFile={selectFile}
+                  onCreateSpec={(title) => void onCreateSpec(title)}
+                  onSetStatus={(spec, status) => void onSetSpecStatus(spec, status)}
+                  onHandoff={(spec) => void onHandoff(spec)}
+                />
+              ) : sidebarView === "git" ? (
                 <GitPanel
                   isRepo={gitRepo}
                   status={gitStatusState}
@@ -1037,9 +1008,6 @@ function App() {
                   loading={gitLoading}
                   busy={gitBusy}
                   hasRemote={gitHasRemote}
-                  error={gitError}
-                  warn={gitWarn}
-                  notice={gitNotice}
                   onInit={onGitInit}
                   onRefresh={() => void refreshGit()}
                   onPull={() => void onGitPull()}
@@ -1060,10 +1028,6 @@ function App() {
                   root={vaultPath}
                   selectedPath={active.path}
                   dirtyPaths={dirtyPaths}
-                  favorites={favorites}
-                  view={sidebarView}
-                  onViewChange={setSidebarView}
-                  onToggleFavorite={toggleFavorite}
                   onSelect={selectFile}
                   onOpenInNewTab={openInNewTab}
                   onCreateUntitled={handleCreateUntitled}
@@ -1074,6 +1038,7 @@ function App() {
                   onDelete={handleDelete}
                   onMove={handleMove}
                   onOpenTerminal={onOpenTerminal}
+                  onReveal={(path) => void onReveal(path)}
                 />
               ))}
 
@@ -1083,13 +1048,22 @@ function App() {
                 onSelect={setActiveTab}
                 onClose={closeTab}
                 onNewTab={newTab}
+                mainView={mainView}
+                onSetMainView={setMainView}
                 previewVisible={previewVisible}
                 onTogglePreview={() => setPreviewVisible((v) => !v)}
                 focusMode={focusMode}
                 onToggleFocusMode={() => setFocusMode((v) => !v)}
               />
 
-              {graphOpen ? (
+              {mainView === "trace" ? (
+                <TraceabilityView
+                  specs={specsData}
+                  commits={traceData}
+                  onOpenSpec={(specPath) => void selectFile(specPath)}
+                  onClose={() => setMainView("editor")}
+                />
+              ) : mainView === "graph" ? (
                 <GraphView
                   nodes={graphData.nodes}
                   edges={graphData.edges}
@@ -1097,7 +1071,7 @@ function App() {
                     const f = files.find((x) => x.relPath === rel && !x.isDir);
                     if (f) void selectFile(f.path);
                   }}
-                  onClose={() => setGraphOpen(false)}
+                  onClose={() => setMainView("editor")}
                 />
               ) : active.path ? (
                 <main className="flex min-h-0 flex-1">
@@ -1115,17 +1089,18 @@ function App() {
                       content={active.draft}
                       wikiTargets={wikiTargets}
                       onOpenWikilink={onOpenWikilink}
+                      onToggleTask={onToggleTask}
                     />
                   )}
                 </main>
               ) : (
                 <StartView
-                  favoriteFiles={favoriteFiles}
                   templateFiles={templateFiles}
+                  onCreateSpec={(title) => void onCreateSpec(title)}
                   onCreateUntitled={() => handleCreateUntitled(vaultPath)}
                   onNewFromTemplate={(body) => handleNewFromTemplate(vaultPath, body)}
                   onCreateFolder={(name) => handleCreateFolder(vaultPath, name)}
-                  onOpenFile={selectFile}
+                  onOpenTerminal={() => void onOpenTerminal()}
                   onChangeVault={changeVault}
                 />
               )}
@@ -1181,6 +1156,8 @@ function App() {
           onCancel={() => setPendingDelete(null)}
         />
       )}
+
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

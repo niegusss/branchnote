@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import { normalizeTarget, remarkWikilinks } from "../lib/wikilinks";
+import { rehypeTaskIndex } from "../lib/tasks";
 
 interface PreviewPaneProps {
   content: string;
@@ -10,10 +11,13 @@ interface PreviewPaneProps {
   wikiTargets: Set<string>;
   /** Open (or create) the note a `[[wikilink]]` points at. */
   onOpenWikilink: (target: string) => void;
+  /** Toggle the index-th GFM task checkbox in the source (document order). */
+  onToggleTask?: (index: number) => void;
 }
 
 const remarkPlugins = [remarkGfm, remarkWikilinks];
-const rehypePlugins = [rehypeSanitize];
+// rehypeTaskIndex runs AFTER sanitize so its data-task-index isn't stripped.
+const rehypePlugins = [rehypeSanitize, rehypeTaskIndex];
 
 const WIKI_PREFIX = "?wiki=";
 
@@ -22,9 +26,33 @@ const WIKI_PREFIX = "?wiki=";
  * strips unsafe HTML before render (note content is untrusted). `[[wikilinks]]`
  * are rendered as `?wiki=` links and intercepted here.
  */
-export function PreviewPane({ content, wikiTargets, onOpenWikilink }: PreviewPaneProps) {
+export function PreviewPane({
+  content,
+  wikiTargets,
+  onOpenWikilink,
+  onToggleTask,
+}: PreviewPaneProps) {
   const components: Components = useMemo(
     () => ({
+      input({ node, type, checked, ...rest }) {
+        if (type === "checkbox") {
+          // Index assigned by rehypeTaskIndex (document order, StrictMode-safe).
+          const raw = node?.properties?.dataTaskIndex;
+          const idx = typeof raw === "number" ? raw : Number(raw);
+          const hasIdx = Number.isFinite(idx);
+          return (
+            <input
+              type="checkbox"
+              checked={!!checked}
+              disabled={!onToggleTask || !hasIdx}
+              onChange={() => hasIdx && onToggleTask?.(idx)}
+              className="cursor-pointer"
+            />
+          );
+        }
+        // Never spread `node` onto a DOM element.
+        return <input type={type} {...rest} />;
+      },
       a({ href, children, ...props }) {
         if (href && href.startsWith(WIKI_PREFIX)) {
           const target = decodeURIComponent(href.slice(WIKI_PREFIX.length));
@@ -50,7 +78,7 @@ export function PreviewPane({ content, wikiTargets, onOpenWikilink }: PreviewPan
         );
       },
     }),
-    [wikiTargets, onOpenWikilink],
+    [wikiTargets, onOpenWikilink, onToggleTask],
   );
 
   return (

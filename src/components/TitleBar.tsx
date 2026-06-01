@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { ChevronDown, Copy, Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ProjectSwitcher } from "./ProjectSwitcher";
 
 interface TitleBarProps {
   /** Open vault name, or null on the onboarding screen. */
   vaultName: string | null;
+  /** Absolute path of the open project (vault), or null. */
+  vaultPath: string | null;
+  /** Recently-opened project paths, most-recent-first. */
+  recents: string[];
+  /** Open one of the recent projects. */
+  onOpenProject: (path: string) => void;
+  /** Open the folder picker to choose a (possibly new) project. */
+  onPickProject: () => void;
   /** Active file name, or null. */
   fileName: string | null;
   dirty: boolean;
@@ -13,7 +22,15 @@ interface TitleBarProps {
 const appWindow = getCurrentWindow();
 
 /** Custom frameless title bar: drag region, breadcrumb, and window controls. */
-export function TitleBar({ vaultName, fileName, dirty }: TitleBarProps) {
+export function TitleBar({
+  vaultName,
+  vaultPath,
+  recents,
+  onOpenProject,
+  onPickProject,
+  fileName,
+  dirty,
+}: TitleBarProps) {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -42,18 +59,31 @@ export function TitleBar({ vaultName, fileName, dirty }: TitleBarProps) {
       data-tauri-drag-region
       className="flex h-10 shrink-0 select-none items-center border-b border-line bg-panel pl-3"
     >
-      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-baseline gap-2">
+      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0 text-sm font-semibold tracking-tight text-ink">
           Branchnote
         </span>
         {vaultName && (
-          <span className="truncate text-sm text-faint">
-            {vaultName}
+          <span className="flex min-w-0 items-center gap-1 text-sm text-faint">
+            <ProjectSwitcher
+              current={vaultPath}
+              recents={recents}
+              onOpenProject={onOpenProject}
+              onPickProject={onPickProject}
+              triggerTitle="Switch project"
+              triggerClassName="flex max-w-[16rem] items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-hover hover:text-ink"
+              triggerContent={
+                <>
+                  <span className="truncate">{vaultName}</span>
+                  <ChevronDown size={13} className="shrink-0 text-faint" aria-hidden />
+                </>
+              }
+            />
             {fileName && (
               <>
-                {" / "}
-                <span className="text-muted">{fileName}</span>
-                {dirty && <span className="text-accent"> •</span>}
+                <span aria-hidden>/</span>
+                <span className="truncate text-muted">{fileName}</span>
+                {dirty && <span className="shrink-0 text-accent">•</span>}
               </>
             )}
           </span>
